@@ -1,0 +1,112 @@
+service: tweetscraper
+
+provider:
+    name: aws
+    runtime: nodejs8.10
+    memorySize: 128
+    environment:
+        SCRAPE_URL: "http://tweetscraper-env.dbdzfu5nui.us-west-1.elasticbeanstalk.com/tweet/"
+        ELASTIC_REGION: "us-west-1"
+        ELASTIC_HOST_LOCAL: "search-tweetscrape-mzr62c4mvl25f2lcnox632g63a.us-west-1.es.amazonaws.com"
+        ELASTIC_HOST:
+            Fn::GetAtt:
+                - ElasticSearchInstance
+                - DomainEndpoint
+        SCRAPE_LIMIT: 1800
+        SCRAPE_LIMIT_LOCAL: 10
+        INDEX_NAME: 'tweet'
+        S3_SAVE_BUCKET: 'scrapeyplace'
+    iamRoleStatements:
+        -   Effect: Allow
+            Action:
+                - sqs:DeleteMessage
+                - sqs:ReceiveMessage
+            Resource: arn:aws:sqs:*:*:ScrapeQueue
+        -   Effect: Allow
+            Action:
+                - es:*
+            Resource: arn:aws:es:*:*:domain/*
+        -   Effect: Allow
+            Action:
+                - s3:*
+            Resource: # arn:aws:s3:::*
+                Fn::Join:
+                    - ":"
+                    -   - "arn:aws:s3::"
+                        - Ref: TweetImageBucket
+
+
+functions:
+    scrape:
+        handler: handler.scrape
+        events:
+            - sqs:
+                arn:
+                    Fn::GetAtt:
+                        - ScrapeQueue
+                        - Arn
+                batchSize: 10
+
+resources:
+    Resources:
+        ScrapeQueue:
+            Type: "AWS::SQS::Queue"
+            Properties:
+                QueueName: "ScrapeQueue"
+                VisibilityTimeout: 30
+                MessageRetentionPeriod: 345600
+        TweetImageBucket:
+            Type: AWS::S3::Bucket
+            Properties:
+                BucketName: "scrapeyplace"
+                VersioningConfiguration:
+                    Status: Enabled
+                CorsConfiguration:
+                    CorsRules:
+                        -   AllowedOrigins:
+                                - '*'
+                            AllowedHeaders:
+                                - '*'
+                            AllowedMethods:
+                                - GET
+                                - PUT
+                                - POST
+                                - DELETE
+                                - HEAD
+                            MaxAge: 3000
+        ElasticSearchInstance:
+            Type: AWS::Elasticsearch::Domain
+            Properties:
+                DomainName: "scrapesearch"
+                EBSOptions:
+                    EBSEnabled: true
+                    VolumeType: gp2
+                    VolumeSize: 10
+                ElasticsearchClusterConfig:
+                    InstanceType: t2.small.elasticsearch
+                    InstanceCount: 1
+                    DedicatedMasterEnabled: false
+                    ZoneAwarenessEnabled: false
+                ElasticsearchVersion: 6.4
+                AccessPolicies:
+                    Version: "2012-10-17"
+                    Statement:
+                        -   Effect: Allow
+                            Action: "es:*"
+                            Resource:
+                                # Fn::GetAtt:
+                                #     - ElasticSearchInstance
+                                #     - DomainArn
+                                Fn::Join:
+                                    - ":"
+                                    -   - "arn:aws:es"
+                                        - Ref: 'AWS::Region'
+                                        - Ref: 'AWS::AccountId'
+                                        - "domain/*"
+                            Principal:
+                                AWS:
+                                    Fn::Join:
+                                        - ":"
+                                        -   - "arn:aws:iam:"
+                                            - Ref: 'AWS::AccountId'
+                                            - "root"
