@@ -7,17 +7,16 @@ const AWS_class = require( 'http-aws-es' );
 
 const DEV_MODE = process.env.IS_LOCAL || process.env.IS_OFFLINE;
 
-const QUEUE_NAME = 'ScrapeQueue'
-const ACCOUNT_ID = '929366106277'
-
 const tweet_root = process.env.SCRAPE_URL;
 const tweet_regex = /^\/?(?:\w+\/status\/)?([0-9]+)$/i;
-const limit = DEV_MODE ? ( process.env.SCRAPE_LIMIT_LOCAL || 30 ) : ( process.env.SCRAPE_LIMIT || 3600 );
+// const limit = DEV_MODE ? ( process.env.SCRAPE_LIMIT_LOCAL || 30 ) : ( process.env.SCRAPE_LIMIT || 3600 );
+const limit = process.env.SCRAPE_LIMIT || 3600;
 
 const fieldname = 'tweet';
 
 const clientconfig = {
-	hosts: DEV_MODE ? process.env.ELASTIC_HOST_LOCAL : process.env.ELASTIC_HOST,
+	// hosts: DEV_MODE ? process.env.ELASTIC_HOST_LOCAL : process.env.ELASTIC_HOST,
+    hosts: process.env.ELASTIC_HOST,
 	connectionClass: AWS_class,
 	awsConfig: new AWS.Config( {
 		region: process.env.ELASTIC_REGION,
@@ -38,7 +37,7 @@ const queue = new AWS.SQS( {
 	credentials: clientconfig.awsConfig.credentials,
 } )
 
-// console.log(process.env);
+// console.log(process.env); return;
 // console.log(queue);
 // console.log(clientconfig);
 
@@ -300,15 +299,14 @@ module.exports.scrape = async ( event, context ) => {
 };
 
 module.exports.hello = ( event, context, callback ) => {
-	console.log( 'event', event );
+	// console.log( 'event', event );
+    // console.log( 'context', context);
+    console.log('env', process.env)
 
 	const response = {
 		statusCode: 200,
-		headers: {
-			"x-custom-header": "yo mama"
-		},
 		body: JSON.stringify( {
-			"message": "You Suck"
+			"message": "World!"
 		} ),
 	}
 
@@ -377,8 +375,8 @@ module.exports.enqueue = async ( event, context ) => {
     console.log('tweets to scrape', tweets)
 
 	var queueUrl = await queue.getQueueUrl( {
-			QueueName: QUEUE_NAME,
-			QueueOwnerAWSAccountId: ACCOUNT_ID
+			QueueName: process.env.QUEUE_NAME,
+			QueueOwnerAWSAccountId: process.env.ACCOUNT_ID
 		} )
 		.promise()
 		.then( data => {

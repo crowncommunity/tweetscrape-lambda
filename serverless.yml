@@ -1,28 +1,51 @@
 service: tweetscraper
 
 plugins:
-    - serverless-offline
+  - serverless-plugin-ifelse
+  - serverless-offline
 
 custom:
+    is_local: ${env:IS_LOCAL, ""}
     serverless-offline:
         host: 0.0.0.0
+    Stage: ${opt:stage, 'dev'}
+    ServiceName: tweetscraper
+    AccountId:
+        Ref: "AWS::AccountId"
+    TweetBucket: ${self:custom.ServiceName}-bucket
+    ScrapeQueue: ${self:custom.ServiceName}-queue
+    ScrapeSearch: ${self:custom.ServiceName}-search
+    ScrapeThrottleTTL: 1800
+    ESEndPoint:
+        Fn::GetAtt:
+            - ElasticSearchInstance
+            - DomainEndpoint
+    ESRegion:
+        Ref: "AWS::Region"
+    local: ${file(./local-env.yml)}
+    serverlessIfElse:
+        -   If: '"x${self:custom.is_local}" == "x"'
+            Set:
+                provider.environment.ELASTIC_HOST: ${self:custom.ESEndPoint}
+                provider.environment.ELASTIC_REGION: ${self:custom.ESRegion}
+                provider.environment.SCRAPE_LIMIT: ${self:custom.ScrapeThrottleTTL}
+                provider.environment.ACCOUNT_ID: ${self:custom.AccountId}
 
 provider:
     name: aws
+    stage: ${self:custom.Stage}
     runtime: nodejs8.10
     memorySize: 128
     environment:
         SCRAPE_URL: "http://tweetscraper-env.dbdzfu5nui.us-west-1.elasticbeanstalk.com/tweet/"
-        ELASTIC_REGION: "us-west-1"
-        ELASTIC_HOST_LOCAL: "search-tweetscrape-mzr62c4mvl25f2lcnox632g63a.us-west-1.es.amazonaws.com"
-        ELASTIC_HOST:
-            Fn::GetAtt:
-                - ElasticSearchInstance
-                - DomainEndpoint
-        SCRAPE_LIMIT: 1800
-        SCRAPE_LIMIT_LOCAL: 10
-        INDEX_NAME: 'tweet'
-        S3_SAVE_BUCKET: 'scrapeyplace'
+        INDEX_NAME: ${self:custom.ScrapeSearch}-index
+        S3_SAVE_BUCKET: ${self:custom.TweetBucket}
+        QUEUE_NAME: ${self:custom.ScrapeQueue}
+        ELASTIC_HOST: ${self:custom.local.ESEndPoint}
+        ELASTIC_REGION: ${self:custom.local.ESRegion}
+        SCRAPE_LIMIT: ${self:custom.local.ScrapeThrottleTTL}
+        ACCOUNT_ID: ${self:custom.local.AccountId}
+
     iamRoleStatements:
         -   Effect: Allow
             Action:
@@ -33,7 +56,7 @@ provider:
                 - sqs:SendMessageBatch
                 - sqs:GetQueueUrl
                 - sqs:GetQueueAttributes
-            Resource: arn:aws:sqs:*:*:ScrapeQueue
+            Resource: arn:aws:sqs:*:*:${self:custom.ScrapeQueue}
         -   Effect: Allow
             Action:
                 - "es:ESHttpHead"
@@ -48,8 +71,8 @@ provider:
             Action:
                 - s3:*
             Resource:
-                - arn:aws:s3:::scrapeyplace/*
-                - arn:aws:s3:::scrapeyplace
+                - arn:aws:s3:::${self:custom.TweetBucket}/*
+                - arn:aws:s3:::${self:custom.TweetBucket}
 
 functions:
     scrape:
@@ -73,8 +96,8 @@ functions:
                 method: POST
                 path: enqueue
                 cors: true
-                authorizer:
-                    type: aws_iam
+                # authorizer:
+                #     type: aws_iam
                 request:
                     querystrings:
                         parameters:
@@ -85,13 +108,13 @@ resources:
         ScrapeQueue:
             Type: "AWS::SQS::Queue"
             Properties:
-                QueueName: "ScrapeQueue"
+                QueueName: ${self:custom.ScrapeQueue}
                 VisibilityTimeout: 30
                 MessageRetentionPeriod: 345600
         TweetImageBucket:
             Type: AWS::S3::Bucket
             Properties:
-                BucketName: "scrapeyplace"
+                BucketName: ${self:custom.TweetBucket}
                 VersioningConfiguration:
                     Status: Enabled
                 CorsConfiguration:
@@ -107,23 +130,28 @@ resources:
                                 - DELETE
                                 - HEAD
                             MaxAge: 3000
-                # AccessPolicies:
-                #     Version: "2012-10-17"
-                #     Statement:
-                #         -   Effect: Allow
-                #             Action: "s3:*"
-                #             Resource: "arn:aws:s3:::scrapeyplace"
-                #             Principal:
-                #                 AWS:
-                #                     Fn::Join:
-                #                         - ":"
-                #                         -   - "arn:aws:iam:"
-                #                             - Ref: 'AWS::AccountId'
-                #                             - "root"
+        TweetImageBucketPolicy:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+                Bucket:
+                    Ref: TweetImageBucket
+                PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                        -   Effect: Allow
+                            Action: "s3:*"
+                            Resource: "arn:aws:s3:::${self:custom.TweetBucket}"
+                            Principal:
+                                AWS:
+                                    Fn::Join:
+                                        - ":"
+                                        -   - "arn:aws:iam:"
+                                            - Ref: 'AWS::AccountId'
+                                            - "root"
         ElasticSearchInstance:
             Type: AWS::Elasticsearch::Domain
             Properties:
-                DomainName: "scrapesearch"
+                DomainName: ${self:custom.ScrapeSearch}
                 EBSOptions:
                     EBSEnabled: true
                     VolumeType: gp2
@@ -145,7 +173,7 @@ resources:
                                     -   - "arn:aws:es"
                                         - Ref: 'AWS::Region'
                                         - Ref: 'AWS::AccountId'
-                                        - "domain/scrapesearch/*"
+                                        - "domain/${self:custom.ScrapeSearch}/*"
                             Principal:
                                 AWS:
                                     Fn::Join:
