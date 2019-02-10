@@ -7,22 +7,31 @@ const AWS_class = require( 'http-aws-es' );
 
 const DEV_MODE = process.env.IS_LOCAL || process.env.IS_OFFLINE;
 
-const tweet_root = process.env.SCRAPE_URL;
-const tweet_regex = /^\/?(?:\w+\/status\/)?([0-9]+)$/i;
-// const limit = DEV_MODE ? ( process.env.SCRAPE_LIMIT_LOCAL || 30 ) : ( process.env.SCRAPE_LIMIT || 3600 );
-const limit = process.env.SCRAPE_LIMIT || 3600;
+const {
+    AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY,
+    SCRAPE_URL,
+    INDEX_NAME,
+    S3_SAVE_BUCKET,
+    SUBMIT_QUEUE,
+    SCRAPE_QUEUE,
+    ELASTIC_HOST,
+    ELASTIC_REGION,
+    SCRAPE_LIMIT,
+    ACCOUNT_ID
+} = process.env;
 
-const fieldname = 'tweet';
+const tweet_regex = /^\/?(?:\w+\/status\/)?([0-9]+)$/i;
+const limit = SCRAPE_LIMIT || 3600;
 
 const clientconfig = {
-	// hosts: DEV_MODE ? process.env.ELASTIC_HOST_LOCAL : process.env.ELASTIC_HOST,
-    hosts: process.env.ELASTIC_HOST,
+    hosts: ELASTIC_HOST,
 	connectionClass: AWS_class,
 	awsConfig: new AWS.Config( {
-		region: process.env.ELASTIC_REGION,
+		region: ELASTIC_REGION,
 		credentials: DEV_MODE ? new AWS.Credentials(
-			process.env.AWS_ACCESS_KEY_ID,
-			process.env.AWS_SECRET_ACCESS_KEY
+			AWS_ACCESS_KEY_ID,
+			AWS_SECRET_ACCESS_KEY
 		) : new AWS.EnvironmentCredentials( 'AWS' ),
 	} )
 }
@@ -41,6 +50,20 @@ const queue = new AWS.SQS( {
 // console.log(queue);
 // console.log(clientconfig);
 
+module.exports.hello = ( event, context, callback ) => {
+	// console.log( 'event', event );
+    // console.log( 'context', context);
+    console.log('env', process.env)
+
+	const response = {
+		statusCode: 200,
+		body: JSON.stringify( {
+			"message": "World!"
+		} ),
+	}
+
+	callback( null, response );
+}
 
 const doScrape = async ( event, context ) => {
 	var tweet_path;
@@ -115,14 +138,14 @@ const doScrape = async ( event, context ) => {
 			secret_key: credentials.secretAccessKey,
 			session_token: credentials.sessionToken,
 		},
-		url: tweet_root + tweet_path,
+		url: SCRAPE_URL + tweet_path,
 	} )
 
 	// console.log(options);
 	// console.log(client);
 
 	var search = {
-		index: process.env.INDEX_NAME,
+		index: INDEX_NAME,
 		type: '_doc',
 		id: tweet_id,
 		_source: 'timestamp',
@@ -185,7 +208,7 @@ const doScrape = async ( event, context ) => {
 	}
 
 	var resp = await bucket.putObject( {
-			Bucket: process.env.S3_SAVE_BUCKET,
+			Bucket: S3_SAVE_BUCKET,
 			Key: json.tweetData.tweetId + '.json',
 			Body: JSON.stringify( json ),
 			ContentType: 'application/json',
@@ -201,9 +224,15 @@ const doScrape = async ( event, context ) => {
 			if ( !up ) return;
 
             console.log('Tweet Data Successfully uploaded to S3 Bucket');
-
+/**
+ *
+ * index mapping enabled=false means we can store the image w/o blowing out the index
+ *
+ * also might need to use explicit insert/update with code scripts on update, for proper data merging
+ *
+ */
 			return client.update( {
-				index: process.env.INDEX_NAME,
+				index: INDEX_NAME,
 				type: '_doc',
 				id: json.tweetData.tweetId,
 				body: {
@@ -298,25 +327,11 @@ module.exports.scrape = async ( event, context ) => {
 	}
 };
 
-module.exports.hello = ( event, context, callback ) => {
-	// console.log( 'event', event );
-    // console.log( 'context', context);
-    console.log('env', process.env)
-
-	const response = {
-		statusCode: 200,
-		body: JSON.stringify( {
-			"message": "World!"
-		} ),
-	}
-
-	callback( null, response );
-}
-
 module.exports.enqueue = async ( event, context ) => {
 	// console.log('event', event);
 
 	const regex = /\/?([\w\d]+\/status\/)?(\d+)/i;
+    const fieldname = 'tweet';
 
 	const validate = tweet => {
 		if ( typeof tweet == 'number' ) {
@@ -375,8 +390,8 @@ module.exports.enqueue = async ( event, context ) => {
     console.log('tweets to scrape', tweets)
 
 	var queueUrl = await queue.getQueueUrl( {
-			QueueName: process.env.QUEUE_NAME,
-			QueueOwnerAWSAccountId: process.env.ACCOUNT_ID
+			QueueName: SCRAPE_QUEUE,
+			QueueOwnerAWSAccountId: ACCOUNT_ID
 		} )
 		.promise()
 		.then( data => {
@@ -436,4 +451,372 @@ module.exports.enqueue = async ( event, context ) => {
 		} )
 }
 
-// ADD AN ENQUEUE FUNCTION AND CONNECT TO AWS API THINGY
+module.exports.submit = async ( event, context ) => {
+	// console.log( 'event', event );
+    const regex = /(?:(?:https?:\/+)?\w.twitter.com\/)?([\w\d]+\/status\/)?(\d+)/ig;
+    const fieldname = 'tweet';
+    const ts = Date.now() / 1000
+
+    var raw_tweets = [];
+
+    if (event.multiValueQueryStringParameters) console.log('multi params', event.multiValueQueryStringParameters)
+	if ( event.multiValueQueryStringParameters && event.multiValueQueryStringParameters[ fieldname ] && typeof event.multiValueQueryStringParameters[ fieldname ].length ) {
+		raw_tweets = event.multiValueQueryStringParameters[ fieldname ] || []
+	}
+
+    if (event.queryStringParameters) console.log('single parameters', event.queryStringParameters)
+	if ( event.queryStringParameters && event.queryStringParameters[ fieldname ] ) {
+		raw_tweets.push(event.queryStringParameters[ fieldname ])
+	}
+
+    if (event.pathParameters) console.log('path parameters', event.pathParameters)
+    if (event.pathParameters && event.pathParameters[fieldname]) {
+        raw_tweets.push(decodeURIComponent(event.pathParameters[fieldname]))
+    }
+
+    console.log('# attempted tweets', raw_tweets.length);
+    // sanity limit
+    raw_tweets = raw_tweets.slice(0, 1000);
+
+    var tweets = [];
+    raw_tweets.forEach(tweet => {
+        var matches = tweet.match(regex);
+        tweets = tweets.concat(matches);
+    })
+
+    // console.log(tweets);
+
+    var u_tweet = {};
+	tweets.forEach( tweet => {
+		if ( tweet ) {
+            var matches = typeof tweet == 'numeric' ? [tweet, null, tweet] : tweet.match(/(?:([\w\d]+)\/status\/)?(\d+)/)
+
+            if (matches[2] && !u_tweet[matches[2]]) {
+                u_tweet[matches[2]] = matches[1] || null
+            }
+		}
+	} )
+	tweets = [];
+    for ( var key of Object.keys( u_tweet ) ) {
+        tweets.push(!u_tweet [key] ? key : u_tweet[key] + '/status/' + key)
+    }
+
+    tweets = tweets.slice(0, 100);
+    console.log('# tweets to submit', tweets.length)
+    // sanity Limit
+
+    var queueUrl = await queue.getQueueUrl( {
+			QueueName: SUBMIT_QUEUE,
+			QueueOwnerAWSAccountId: ACCOUNT_ID
+		} )
+		.promise()
+		.then( data => {
+			// console.log('queue url', data)
+			return data.QueueUrl;
+		} )
+		.catch( err => {
+			console.log( 'url error', err );
+			context.fail();
+		} )
+
+	var errors = []
+
+	// this should be turned into a SendMessageBatch call but fuck it for now
+	var tweets = tweets.map( tweet => {
+		return queue.sendMessage( {
+            // we include timestamp and context to help mitigate bad behavior
+				MessageBody: JSON.stringify( {
+					path: tweet,
+                    ts: ts,
+                    context: event.requestContext || null
+				} ),
+				QueueUrl: queueUrl,
+			} )
+			.promise()
+			.catch( err => {
+				console.log( 'message error', err );
+				errors.push( {
+					tweet: tweet,
+					error: err
+				} );
+				return false;
+			} )
+			.then( data => {
+                console.log('message sent', tweet, data)
+				return data ? true : false;
+			} )
+	} );
+
+	return Promise.all( tweets )
+		.then( resp => {
+			const good = resp.filter( i => i )
+				.length;
+			const all = resp.length;
+
+			return {
+				statusCode: 200,
+				body: JSON.stringify( {
+					success: good,
+					fail: all - good,
+					errors: errors
+				} )
+			}
+		} )
+		.catch( err => {
+			errors.push( 'promise error', err )
+
+			console.log( errors );
+			// context.fail();
+		} )
+}
+
+module.exports.submissions = async ( event, context ) => {
+    if (event.queryStringParameters) console.log('single parameters', event.queryStringParameters)
+    const limit = event.queryStringParameters && event.queryStringParameters[ 'limit' ] || 10;
+
+    const getDedupeMap = messages => {
+        var recv = {}
+        var del = [];
+
+        messages.map((v, i, a) => {
+            if (!v.Body || !v.Body.path) {
+                console.log('malformed message', v);
+                return;
+            }
+
+            // console.log(v.Body.path)
+
+            var matches = v.Body.path.match(/\d+$/);
+            if (!matches || !matches[0]) {
+                del.push(i);
+                return;
+            }
+            var id = matches[0]
+
+            if (!recv[id] && recv[id] !== 0) {
+                recv[id] = i;
+                return;
+            }
+
+            var c = a[recv[id]];
+
+            if (c.Body.path == v.Body.path) {
+                del.push(i);
+                return;
+            }
+
+            if (id == c.Body.path && id.length < v.Body.path.length) {
+                del.push(recv[id]);
+                recv[id] = i;
+                return
+            }
+
+            del.push(i);
+        })
+
+        // console.log('nums', messages.length, del, recv);
+
+        return {
+            keep: Object.values(recv),
+            delete: del
+        }
+    }
+
+    const delMsgBatch = (queueUrl, batch) => {
+        return queue.deleteMessageBatch({
+            QueueUrl: queueUrl,
+            Entries: batch
+        }).promise()
+        .catch(err => {
+            console.log('delete batch error', err);
+            console.log(batch);
+        })
+        .then(data => {
+            console.log('dupes deleted', data);
+        })
+    }
+
+    const dedupe = async (messages, callback) => {
+        var res = getDedupeMap(messages);
+        // console.log(res);
+
+        var keepers = res.keep.map(i => {
+            return messages[i];
+        })
+        // console.log('keepers', keepers.length);
+
+        var remove = res.delete.map(i => {
+            var msg = messages[i];
+            return {
+                Id: msg.MessageId,
+                ReceiptHandle: msg.ReceiptHandle
+            }
+        })
+        // console.log('deleters', remove.length);
+
+        if (remove && remove.length > 0 ) {
+            return callback(remove).then (r => {
+                return keepers;
+            });
+        }
+
+        return Promise.resolve(keepers);
+    }
+
+    var queueUrl = await queue.getQueueUrl( {
+			QueueName: SUBMIT_QUEUE,
+			QueueOwnerAWSAccountId: ACCOUNT_ID
+		} )
+		.promise()
+		.then( data => {
+			console.log('queue url', data)
+			return data.QueueUrl;
+		} )
+		.catch( err => {
+			console.log( 'url error', err );
+			context.fail();
+		} )
+
+    var messages = [];
+    var iter = 3;
+    for (var i = 20 ; messages.length < limit && iter > 0 && i > 0 ; i--) {
+        messages = await queue.receiveMessage({
+            QueueUrl: queueUrl,
+            MaxNumberOfMessages: limit < 10 ? limit : 10
+        }).promise()
+        .then(resp => {
+            if (resp.Messages && resp.Messages.length > 0) {
+                resp.Messages = resp.Messages.map(i => {
+                    i.Body = i && i.Body ? JSON.parse(i.Body) : null;
+                    return i;
+                });
+            } else {
+                resp.Messages = [];
+            }
+            return resp;
+        })
+        .then(resp => {
+            if (!resp.Messages.length) {
+                iter--
+            } else {
+                messages = messages.concat(resp.Messages)
+                iter = 3
+            }
+
+            return dedupe(messages, remove => {
+                return delMsgBatch(queueUrl, remove)
+            });
+        })
+    }
+
+    // this can result in a messages length larger than the selected limit, but up to 10 messages.
+    // if it becomes a problem we can prune the messages list and release the overhang items
+
+    return {
+        statusCode: 200,
+        body: JSON.stringify(messages)
+    }
+}
+
+module.exports.deleteSubmssions = async (event, context) => {
+    if (event.body) console.log('body', event.body);
+
+    const chunk = (a, s = 10)  => {
+        var ret = [];
+
+        for (i = 0 ; i < a.length ; i += s) {
+            ret.push(a.slice(i, s));
+        }
+
+        return ret;
+    }
+
+    const delMsgBatch = (queueUrl, batch) => {
+        return queue.deleteMessageBatch({
+            QueueUrl: queueUrl,
+            Entries: batch
+        }).promise()
+        .catch(err => {
+            console.log('delete batch error', err);
+            console.log(batch);
+        })
+    }
+
+    try {
+        if (!event.body) {
+            return { statusCode: 400 }
+        }
+        if(!event.body.match(/^\s*\[(?:\s*\{)?/)) {
+            throw new Error('Malformed JSON document');
+        }
+        event.body = JSON.parse(event.body);
+
+        if (!event.body.length) return { statusCode: 204 }
+
+        var messages = event.body.map(i => {
+            if (!i.MessageId || !i.ReceiptHandle) {
+                throw new Error ('Malformed Message: field(s) missing');
+            }
+            if (typeof i.MessageId !== 'string' || typeof i.ReceiptHandle !== 'string') {
+                throw new Error ('Malformed Message: malformed field data');
+            }
+            return {
+                Id: i.MessageId,
+                ReceiptHandle: i.ReceiptHandle
+            }
+        });
+        event.body = null; // nulling out for memory purposes
+
+        messages = messages.slice(0, 100); // sanity
+
+    } catch (e) {
+        console.log('malformed request error', e);
+        return { statusCode: 400 }
+    }
+
+    try {
+        var chunks = chunk(messages);
+        messages = null; // nulling out for memory purposes
+
+        // console.log(chunks);
+
+        var queueUrl = await queue.getQueueUrl( {
+            QueueName: SUBMIT_QUEUE,
+            QueueOwnerAWSAccountId: ACCOUNT_ID
+        } )
+        .promise()
+        .then( data => {
+            console.log('queue url', data)
+            return data.QueueUrl;
+        } )
+        .catch( err => {
+            console.log( 'url error', err );
+            context.fail();
+        } )
+
+        var deletes = await Promise.all(chunks.map(c => {
+            return delMsgBatch(queueUrl, c)
+        })).then(all => {
+            // console.log(all);
+            var success = []
+            var failed = [];
+            all.forEach(i => {
+                success = success.concat(i.Successful || []);
+                failed = failed.concat(i.Failed || []);
+            })
+
+            return {
+                Successful: success,
+                Failed: failed
+            }
+        })
+    } catch (e) {
+        console.log('processing error', e);
+        return { statusCode: 500 }
+    }
+
+    return {
+        statusCode: 200,
+        body: JSON.stringify(deletes)
+    };
+}

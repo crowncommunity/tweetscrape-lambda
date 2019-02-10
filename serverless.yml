@@ -6,6 +6,7 @@ plugins:
 
 custom:
     is_local: ${env:IS_LOCAL, ""}
+    is_offline: ${env:IS_OFFLINE, ""}
     serverless-offline:
         host: 0.0.0.0
     Stage: ${opt:stage, 'dev'}
@@ -13,6 +14,7 @@ custom:
     AccountId:
         Ref: "AWS::AccountId"
     TweetBucket: ${self:custom.ServiceName}-bucket
+    SubmissionQueue: ${self:custom.ServiceName}-submissions
     ScrapeQueue: ${self:custom.ServiceName}-queue
     ScrapeSearch: ${self:custom.ServiceName}-search
     ScrapeThrottleTTL: 1800
@@ -24,7 +26,7 @@ custom:
         Ref: "AWS::Region"
     local: ${file(./local-env.yml)}
     serverlessIfElse:
-        -   If: '"x${self:custom.is_local}" == "x"'
+        -   If: '"x${self:custom.is_local}" == "x" && "x${self:custom.is_offline}" == "x"'
             Set:
                 provider.environment.ELASTIC_HOST: ${self:custom.ESEndPoint}
                 provider.environment.ELASTIC_REGION: ${self:custom.ESRegion}
@@ -40,7 +42,8 @@ provider:
         SCRAPE_URL: "http://tweetscraper-env.dbdzfu5nui.us-west-1.elasticbeanstalk.com/tweet/"
         INDEX_NAME: ${self:custom.ScrapeSearch}-index
         S3_SAVE_BUCKET: ${self:custom.TweetBucket}
-        QUEUE_NAME: ${self:custom.ScrapeQueue}
+        SUBMIT_QUEUE: ${self:custom.SubmissionQueue}
+        SCRAPE_QUEUE: ${self:custom.ScrapeQueue}
         ELASTIC_HOST: ${self:custom.local.ESEndPoint}
         ELASTIC_REGION: ${self:custom.local.ESRegion}
         SCRAPE_LIMIT: ${self:custom.local.ScrapeThrottleTTL}
@@ -75,6 +78,10 @@ provider:
                 - arn:aws:s3:::${self:custom.TweetBucket}
 
 functions:
+    index:
+        handler: handler.hello
+        events:
+            - http: GET hello
     scrape:
         handler: handler.scrape
         events:
@@ -85,10 +92,6 @@ functions:
                         - Arn
                 batchSize: 10
         reservedConcurrency: 3
-    index:
-        handler: handler.hello
-        events:
-            - http: GET hello
     enqueue:
         handler: handler.enqueue
         events:
@@ -99,18 +102,90 @@ functions:
                 # authorizer:
                 #     type: aws_iam
                 request:
-                    querystrings:
-                        parameters:
+                    parameters:
+                        querystrings:
                             tweet: false
+    # search:
+        # search by username (screenName, mentions, quoteTweet.screenName, permaLink?)
+        # search by tweetId (tweetId, conversationId, permaLink?)
+        # search by text
+        # search by tweet ts
+        # search by scrape ts
+        # search by tags (hashtags?)
+    submit:
+        # public, must have lots of sanity checking ... maybe isomorphic-ish to prevent scripting?
+        handler: handler.submit
+        events:
+            - http:
+                method: POST
+                path: submit
+                cors: true
+                request:
+                    headers:
+                        Content-Type: application/json
+                    parameters:
+                        querystrings:
+                            tweet: true
+            - http:
+                method: GET
+                path: submit/{tweet+}
+                cors: true
+                request:
+                    headers:
+                        Content-Type: application/json
+                    parameters:
+                        paths:
+                            tweet: false
+                        querystrings:
+                            tweet: false
+    submissions:
+        handler: handler.submissions
+        events:
+            - http:
+                method: GET
+                path: submissions
+                cors: true
+                request:
+                    headers:
+                        Content-Type: application/json
+                    parameters:
+                        querystrings:
+                            limit: false
+    deleteSubmissions:
+        handler: handler.deleteSubmssions
+        events:
+            - http:
+                method: DELETE
+                path: submissions
+                cors: true
+                request:
+                    headers:
+                        Content-Type: application/json
+
+    # tweet:
+        # direct to S3, public
+    # dedupe
+        # triggered? or scheduled maybe
+        # walks the queue looking for dupes and issues delete/messagevisibility as needed
+
+# maybe
+# if a submitted tweet is proven well formed, check if it already exists in ES
+
 
 resources:
     Resources:
         ScrapeQueue:
-            Type: "AWS::SQS::Queue"
+            Type: AWS::SQS::Queue
             Properties:
                 QueueName: ${self:custom.ScrapeQueue}
                 VisibilityTimeout: 30
                 MessageRetentionPeriod: 345600
+        SubmissionQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: ${self:custom.SubmissionQueue}
+                VisibilityTimeout: 900
+                MessageRetentionPeriod: 1209600
         TweetImageBucket:
             Type: AWS::S3::Bucket
             Properties:
@@ -130,6 +205,7 @@ resources:
                                 - DELETE
                                 - HEAD
                             MaxAge: 3000
+
         TweetImageBucketPolicy:
             Type: AWS::S3::BucketPolicy
             Properties:
@@ -148,6 +224,7 @@ resources:
                                         -   - "arn:aws:iam:"
                                             - Ref: 'AWS::AccountId'
                                             - "root"
+
         ElasticSearchInstance:
             Type: AWS::Elasticsearch::Domain
             Properties:
