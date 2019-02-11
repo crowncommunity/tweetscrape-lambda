@@ -105,13 +105,29 @@ functions:
                     parameters:
                         querystrings:
                             tweet: false
-    # search:
+    search:
         # search by username (screenName, mentions, quoteTweet.screenName, permaLink?)
         # search by tweetId (tweetId, conversationId, permaLink?)
         # search by text
         # search by tweet ts
         # search by scrape ts
         # search by tags (hashtags?)
+        #  usernames/tweets_by/mentioning
+        #  tweet_content
+        #  tweeter_name
+        #  tags/hashtags
+        #  in_reply_to/quoting
+        handler: handler.search
+        events:
+            - http:
+                method: GET
+                path: search
+                cors: true
+                request:
+                    parameters:
+                        querystrings:
+                            q: true
+
     submit:
         # public, must have lots of sanity checking ... maybe isomorphic-ish to prevent scripting?
         handler: handler.submit
