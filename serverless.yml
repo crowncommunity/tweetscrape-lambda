@@ -13,10 +13,10 @@ custom:
     ServiceName: tweetscraper
     AccountId:
         Ref: "AWS::AccountId"
-    TweetBucket: ${self:custom.ServiceName}-bucket
-    SubmissionQueue: ${self:custom.ServiceName}-submissions
-    ScrapeQueue: ${self:custom.ServiceName}-queue
-    ScrapeSearch: ${self:custom.ServiceName}-search
+    TweetBucket: ${self:custom.ServiceName}-${self:provider.stage}-bucket
+    SubmissionQueue: ${self:custom.ServiceName}-${self:provider.stage}-submissions
+    ScrapeQueue: ${self:custom.ServiceName}-${self:provider.stage}-queue
+    ScrapeSearch: ${self:custom.ServiceName}-${self:provider.stage}-search
     ScrapeThrottleTTL: 1800
     ESEndPoint:
         Fn::GetAtt:
@@ -59,7 +59,9 @@ provider:
                 - sqs:SendMessageBatch
                 - sqs:GetQueueUrl
                 - sqs:GetQueueAttributes
-            Resource: arn:aws:sqs:*:*:${self:custom.ScrapeQueue}
+            Resource:
+                - arn:aws:sqs:*:*:${self:custom.ScrapeQueue}
+                - arn:aws:sqs:*:*:${self:custom.SubmissionQueue}
         -   Effect: Allow
             Action:
                 - "es:ESHttpHead"
@@ -78,6 +80,9 @@ provider:
                 - arn:aws:s3:::${self:custom.TweetBucket}
 
 functions:
+    initialize:
+        handler: handler.initialize
+
     index:
         handler: handler.hello
         events:
@@ -106,17 +111,6 @@ functions:
                         querystrings:
                             tweet: false
     search:
-        # search by username (screenName, mentions, quoteTweet.screenName, permaLink?)
-        # search by tweetId (tweetId, conversationId, permaLink?)
-        # search by text
-        # search by tweet ts
-        # search by scrape ts
-        # search by tags (hashtags?)
-        #  usernames/tweets_by/mentioning
-        #  tweet_content
-        #  tweeter_name
-        #  tags/hashtags
-        #  in_reply_to/quoting
         handler: handler.search
         events:
             - http:
@@ -144,16 +138,21 @@ functions:
                             tweet: true
             - http:
                 method: GET
-                path: submit/{tweet+}
+                path: submit
                 cors: true
                 request:
                     headers:
                         Content-Type: application/json
                     parameters:
-                        paths:
-                            tweet: false
                         querystrings:
-                            tweet: false
+                            tweet: true
+            - http:
+                method: GET
+                path: submit/{tweet+}
+                cors: true
+                request:
+                    headers:
+                        Content-Type: application/json
     submissions:
         handler: handler.submissions
         events:
@@ -274,3 +273,15 @@ resources:
                                         -   - "arn:aws:iam:"
                                             - Ref: 'AWS::AccountId'
                                             - "root"
+                    ### THIS IS TEMPORARY FOR DEV PURPOSES.. MUST REMOVE FOR PUBLIC DEPLOYMENT
+                        -   Effect: Allow
+                            Action: "es:*"
+                            Resource:
+                                Fn::Join:
+                                    - ":"
+                                    -   - "arn:aws:es"
+                                        - Ref: 'AWS::Region'
+                                        - Ref: 'AWS::AccountId'
+                                        - "domain/${self:custom.ScrapeSearch}/*"
+                            Principal:
+                                AWS: '*'

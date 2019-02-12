@@ -1,0 +1,143 @@
+Endpoints:
+
+POST /enqueue
+    optional params: tweet=STRING (multiple supported)
+
+* Enqueues valid tweet paths or tweet Ids into the SQS Scrape queue
+
+Takes a JSON object of the following structure as the request Body:
+
+ex:
+{
+    "tweet": [ "ham/status/123"]
+}
+
+Note: the post MUST include the Header: "Content-Type: application/json"
+or it will not attempt to parse the Body
+
+Alternatively: it will accept a POST parameters request of the same structure
+
+each submitted tweet path or Id is validated against the following regex:
+    /\/?([\w\d]+\/status\/)?(\d+)/i
+
+returns:
+
+object in the following structure:
+
+{
+  "success": INT,
+  "fail": INT,
+  "errors": [OBJECTS]
+}
+
+GET /submissions
+    optional params: limit=INT
+
+* Temporarily acquires (for 15 minutes) and returns a list of (deduped) SQS objects, up to the $limit (default = 10)
+
+returns:
+
+Array of SQS Message Object(s)
+
+example:
+[
+  {
+    "MessageId": "6c70565e-802f-4e9c-b540-5ad9fa177a8c",
+    "ReceiptHandle": "AQEBoTM1V4+/oKJWz3T+AGkXYgJW5ncQtpTHf6esB0JvuEcRCieUD0LYCtbLZAfV6rK/bTjXIR84LYqcyJkVixxJcZkrDiE/W8T8lAXByRWkUW112BspqvELp6tJ1N1Yv7FWCHILYk/+224omLjxRBgiBQ+mMBDqvKePn3MlI+TQ66pDI/g8evLVMqWnTQ9+ZZ+56jYQOlkeXAV/Rck4I+pyYGND/vYAOtzliXusG8Q1FIXwJeK4y1rSikNyXWazfXzS4ARVtSBGpaktvakdfPpWEkeM6TqvQ8E5KjpLbmSgjyMG3r3/uhL65MhBaxMhmBBi01GULvAZBa2YQEG3QKvwZaHQ+7JCu7HhkAHWGDzzctRVOeHkur/Pwn+zOVd3Jkhvfodo2TcldrdJgbGi5/q2PU8sItb23udFEjv+i6Zqu1o=",
+    "MD5OfBody": "ff5696c062f8e34efec742aef571b999",
+    "Body": {
+      "path": "123",
+      "ts": 1549965224.168,
+      "context": {
+        "path": "/submit/{tweet+}",
+        "accountId": "123456789",
+        "resourceId": "2aqkuw",
+        "stage": "test-invoke-stage",
+        "domainPrefix": "testPrefix",
+        "requestId": "153f1970-2eac-11e9-874c-019ca3c16a9d",
+        "identity": { ... },
+        "domainName": "testPrefix.testDomainName",
+        "resourcePath": "/submit/{tweet+}",
+        "httpMethod": "GET",
+        "extendedRequestId": "U-yiNHiZyK4FT6A=",
+        "apiId": "s919ueqx71"
+      }
+    }
+  }
+]
+
+DELETE /submissions
+
+* Removes SQS messages from the submissions queue
+
+Takes a JSON array of submission objects as the Body of your request:
+
+ex:
+
+[{
+    "MessageId": "b3a3e2ee-1b9b-4537-8d11-2922aa9c3036",
+    "ReceiptHandle": "AQEBa0d/hfLSlxf+TXGGsXgP9yCcc1W25ul1VQYb5DtjeZTY0haCQ5tNISFFuINqTjuOrQIxcDvqxIQX7Q+ab/PZ0vY+fNCpltaZrtfyNnPljzyKv1amPkgBUzjQIySSdHbGl5mv1+JkcPubCFv14rBmy2Wyg9ibj/GR8ULMVoTviLqaAagXxlAaQTZQN48l0ICnKRYxOYqL2Xshneb6vRW6Gvudu7KVImf3GyPmt/GHMFsrQP6xcfeQHD2uS/LIhHwK0CH6wm0S777sB1q29m5J8ULByx89wU/eRaHGpswN2RMX48lYP3bxKTOg+Vj273LvWQa2oONEC2o3dGcDoG3VusyIfRGVQtrdNcn4sohlh611ojSBUxEZO7c4skUIejtLY2+EqQZw0mOYeZp6hQfbGA=="
+}]
+
+returns:
+
+JSON object with 2 array members listing succcessful and failed items, by Message Id
+
+example:
+
+{
+  "Successful": [
+    {
+      "Id": "b3a3e2ee-1b9b-4537-8d11-2922aa9c3036"
+    }
+  ],
+  "Failed": []
+}
+
+
+GET /submit/:tweet_id
+GET /submit
+    required params: tweet (allows multiple, max 100 unique)
+POST /submit
+    required params: tweet (allows multiple, max 100 unique)
+
+* assembles all submitted tweets into an array and extracts valid tweet IDs using the following regex:
+        /(?:(?:https?:\/+)?\w.twitter.com\/)?([\w\d]+\/status\/)?(\d+)/ig
+    then after a cursory deduping by tweet_id enqueues them into the SQS submissions queue
+
+Note: though simple numeric IDs are supported is it preferred to include the "$username/status/" portion of the path, for scraping purposes.
+    twitter does not require it to retrieve a tweet, but it can be used as a behavioral detection method for counterforce purposes
+
+returns:
+
+object in the following structure:
+
+{
+  "success": INT,
+  "fail": INT,
+  "errors": [OBJECTS]
+}
+
+GET /search
+    required parameter: q=STRING
+
+Parses the query string into an ElasticSearch query object, executes said query, and returns the data
+
+ex:
+    ham +cheese @turtles #flargnargle "some phrase" +"must include" mentions:steve r:12345454323456
+
+Note: query string must be URL encoded with proper % values for special characters
+
+Special Modifying prefixes:
+
+    @   for usernames
+    #   for tags and hashtags
+    m: or mentions: usernames in mention or quote tweet
+    r: or replyto:  tweet Ids mentioned, in reply, or as quote
+    +   makes this keyword required in the result (i.e. the "must" clause in ES lingo) - may also be prepended to any above modifier
+
+    phrases must be encased in double quotes
+    single quotes are ignored (they're not even indexed by default, so don't look for "don't"! may figure out a work around later)
+    all numeric strings are treated as tweetIds
+
+each modifier increases the rank score of results which use them... 'jason' will return the same results '@jason', but the latter will be scored at the top

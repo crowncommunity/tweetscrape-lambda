@@ -46,10 +46,6 @@ const queue = new AWS.SQS( {
 	credentials: clientconfig.awsConfig.credentials,
 } )
 
-// console.log(process.env); return;
-// console.log(queue);
-// console.log(clientconfig);
-
 module.exports.hello = ( event, context, callback ) => {
 	// console.log( 'event', event );
     // console.log( 'context', context);
@@ -219,7 +215,7 @@ const doScrape = async ( event, context ) => {
 			console.log( 'S3 Upload Error', e );
 		} )
 		.then( up => {
-			delete json.tweetData.screenshot
+			// delete json.tweetData.screenshot
 
 			if ( !up ) return;
 
@@ -334,13 +330,16 @@ module.exports.enqueue = async ( event, context ) => {
     const fieldname = 'tweet';
 
 	const validate = tweet => {
+        // console.log('validate', tweet);
 		if ( typeof tweet == 'number' ) {
+            // console.log('type of', typeof tweet);
 			return {
 				[ String( tweet ) ]: null
 			}
 		}
 		if ( tweet ) {
 			var matches = tweet.match( regex )
+            // console.log('matches', matches);
 			return matches ? {
 				[ matches[ 2 ] ]: matches[ 1 ] || null
 			} : null;
@@ -350,7 +349,11 @@ module.exports.enqueue = async ( event, context ) => {
 	var tweets = [];
 
     if (event.body) console.log('Event Body', event.body)
-	if ( event.headers && event.headers[ 'Content-Type' ] && event.headers[ 'Content-Type' ] == 'application/json' ) {
+	if ( event.headers && (
+        // not sure which is the problem, but either AWS or Postman is down casing the header... lame
+        (event.headers[ 'Content-Type' ] && event.headers[ 'Content-Type' ] == 'application/json') ||
+        (event.headers[ 'content-type' ] && event.headers[ 'content-type' ] == 'application/json')
+    ) ) {
         try {
             event.body = JSON.parse( event.body );
             console.log('parsed body', event.body)
@@ -916,12 +919,16 @@ module.exports.search = async (event, context) => {
 
     console.log('queryString', queryString);
 
-    var rawq = betterTokenize(queryString);
+    var rawq = betterTokenize(queryString || '');
     var must = rawq.filter(i => i.match(/^\+/))
         .map(i => i.replace(/^\+/, ''));
     var shld = rawq.map(i => i.replace(/^\+/, ''));
 
     console.log('tokenized', rawq);
+
+    if (!must.length && !shld.length) {
+        return { statusCode: 204 }
+    }
 
     const parse2silos = tokens => {
         var tids = tokens.filter(i => i.match(/^"?\d+"?$/))
@@ -1046,4 +1053,86 @@ module.exports.search = async (event, context) => {
         statusCode: 200,
         body: JSON.stringify(response.hits || {})
     }
+}
+
+module.exports.initialize = async (event, context) => {
+
+    const mapping = {
+        index: INDEX_NAME,
+        type: "_doc",
+        body: {
+            // "_doc": {
+                "properties": {
+                    "timestamp": {
+                        "type": "date"
+                    },
+                    "tags": {
+                        "type": "keyword"
+                    },
+                    "tweetData": {
+                        "properties": {
+                            "favorite_num": {
+                                "type": "long"
+                            },
+                            "reply_num": {
+                                "type": "long"
+                            },
+                            "retweet_num": {
+                                "type": "long"
+                            },
+                            "timestamp": {
+                                "type": "date"
+                            },
+                            "tweetHTML": {
+                                "type": "text",
+                                "fields": {
+                                    "keyword": {
+                                        "type": "keyword",
+                                        "ignore_above": 1024
+                                    }
+                                }
+                            },
+                            "screenshot": {
+                                "enabled": false
+                            },
+                            "quoteTweet": {
+                                "properties": {
+                                    "quoteHTML": {
+                                        "type": "text",
+                                        "fields": {
+                                            "keyword": {
+                                                "type": "keyword",
+                                                "ignore_above": 1024
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                // }
+            }
+        }
+    }
+
+    await client.indices.exists( {
+       index: INDEX_NAME
+    })
+        .catch(e => console.log(e))
+        .then(r => {
+            return !r ? client.indices.create({
+                index: INDEX_NAME
+            })
+            .catch(e => console.log(e))
+            .then(res => {
+                return client.indices.putMapping( mapping )
+            }) : null;
+        })
+        .then(res => {
+            return client.indices.exists( {
+                index: INDEX_NAME
+            }).catch(e => console.log(e)).then(r => r)
+        })
+        .then(r => console.log(r));
+
 }
