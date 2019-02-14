@@ -13,7 +13,7 @@ custom:
     ServiceName: tweetscraper
     AccountId:
         Ref: "AWS::AccountId"
-    TweetBucket: ${self:custom.ServiceName}-${self:provider.stage}-bucket
+    TweetBucket: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-bucket
     SubmissionQueue: ${self:custom.ServiceName}-${self:provider.stage}-submissions
     ScrapeQueue: ${self:custom.ServiceName}-${self:provider.stage}-queue
     ScrapeSearch: ${self:custom.ServiceName}-${self:provider.stage}-search
@@ -81,14 +81,15 @@ provider:
 
 functions:
     initialize:
-        handler: handler.initialize
+        handler: src/handlers/initialize.main
 
     index:
-        handler: handler.hello
+        handler: src/handlers/hello.main
         events:
             - http: GET hello
+
     scrape:
-        handler: handler.scrape
+        handler: src/handlers/scrape.main
         events:
             - sqs:
                 arn:
@@ -98,20 +99,22 @@ functions:
                 batchSize: 10
         reservedConcurrency: 3
     enqueue:
-        handler: handler.enqueue
+        handler: src/handlers/enqueue.main
         events:
             - http:
                 method: POST
                 path: enqueue
                 cors: true
                 # authorizer:
-                #     type: aws_iam
+                #     type: COGNITO_USER_POOLS
+                #     authorizerId:
+                #         Ref: ApiGatewayAuthorizer
                 request:
                     parameters:
                         querystrings:
                             tweet: false
     search:
-        handler: handler.search
+        handler:  src/handlers/search.main
         events:
             - http:
                 method: GET
@@ -124,7 +127,7 @@ functions:
 
     submit:
         # public, must have lots of sanity checking ... maybe isomorphic-ish to prevent scripting?
-        handler: handler.submit
+        handler: src/handlers/submit.main
         events:
             - http:
                 method: POST
@@ -154,12 +157,16 @@ functions:
                     headers:
                         Content-Type: application/json
     submissions:
-        handler: handler.submissions
+        handler: src/handlers/submissions.main
         events:
             - http:
                 method: GET
                 path: submissions
                 cors: true
+                # authorizer:
+                #     type: COGNITO_USER_POOLS
+                #     authorizerId:
+                #         Ref: ApiGatewayAuthorizer
                 request:
                     headers:
                         Content-Type: application/json
@@ -167,12 +174,16 @@ functions:
                         querystrings:
                             limit: false
     deleteSubmissions:
-        handler: handler.deleteSubmssions
+        handler: src/handlers/deleteSubmissions.main
         events:
             - http:
                 method: DELETE
                 path: submissions
                 cors: true
+                # authorizer:
+                #     type: COGNITO_USER_POOLS
+                #     authorizerId:
+                #         Ref: ApiGatewayAuthorizer
                 request:
                     headers:
                         Content-Type: application/json
@@ -285,3 +296,49 @@ resources:
                                         - "domain/${self:custom.ScrapeSearch}/*"
                             Principal:
                                 AWS: '*'
+
+        ApiGatewayAuthorizer:
+            Type: AWS::ApiGateway::Authorizer
+            Properties:
+                Name: ${self:custom.ServiceName}-${self:provider.stage}-auth
+                AuthorizerResultTtlInSeconds: 900
+                IdentitySource: method.request.header.Authorization
+                Type: COGNITO_USER_POOLS
+                RestApiId:
+                    Ref: ApiGatewayRestApi
+                ProviderARNs:
+                    - Fn::GetAtt:
+                        - CognitoUserPool
+                        - Arn
+
+        CognitoUserPool:
+            Type: AWS::Cognito::UserPool
+            Properties:
+                UserPoolName: ${self:custom.ServiceName}-${self:provider.stage}-user-pool
+                UsernameAttributes:
+                    - email
+                AutoVerifiedAttributes:
+                    - email
+                # Policies:
+                #     PasswordPolicy:
+                #         MinimumLength: 12
+                #         RequireLowercase: true
+                #         RequireNumbers: true
+                #         RequireSymbols: true
+                #         RequireUppercase: true
+                # MfaConfiguration: OPTIONAL
+                AdminCreateUserConfig:
+                    AllowAdminCreateUserOnly: true
+                    UnusedAccountValidityDays: 2
+
+        CognitoUserPoolClient:
+            Type: AWS::Cognito::UserPoolClient
+            Properties:
+                ClientName: ${self:custom.ServiceName}-${self:provider.stage}-user-pool-client
+                UserPoolId:
+                    Ref: CognitoUserPool
+                GenerateSecret: false
+                RefreshTokenValidity: 7
+                # might need this.. don't think so tho
+                # ExplicitAuthFlows:
+                #     - ADMIN_NO_SRP_AUTH
