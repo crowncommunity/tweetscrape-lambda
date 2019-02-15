@@ -258,7 +258,7 @@ module.exports.main = async (event, context) => {
         index: INDEX_NAME,
         body: query,
         scroll: scroll_timeout,
-        size: 2,
+        size: 25,
         sort: querySort || null
     })
     .catch(err => {

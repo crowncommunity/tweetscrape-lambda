@@ -13,11 +13,15 @@
     "aws-sign-requests": "^0.4.0",
     "elasticsearch": "^15.3.1",
     "http-aws-es": "^6.0.0",
+    "middy": "^0.22.0",
     "node-fetch": "^2.3.0",
     "serverless": "^1.36.3"
   },
   "devDependencies": {
+    "@aws-amplify/api": "^1.0.26",
+    "@aws-amplify/auth": "^1.2.15",
     "serverless-offline": "^4.2.1",
-    "serverless-plugin-ifelse": "^1.0.3"
+    "serverless-plugin-ifelse": "^1.0.3",
+    "serverless-s3-remover": "^0.6.0"
   }
 }
