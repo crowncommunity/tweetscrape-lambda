@@ -42,7 +42,7 @@ const getQueueUrl = async context => {
 
 module.exports.main = async ( event, context ) => {
 	// console.log( 'event', event );
-    const regex = /(?:(?:https?:\/+)?\w.twitter.com\/)?([\w\d]+\/status\/)?(\d+)/ig;
+    const regex = /(?:(?:https?:\/+)?(?:\w\.)?twitter.com\/)?([\w\d]+\/status\/)?(\d+)/ig;
     const fieldname = 'tweet';
     const ts = Date.now() / 1000
 
@@ -132,6 +132,12 @@ module.exports.main = async ( event, context ) => {
 
 			return {
 				statusCode: 200,
+                headers: {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Credentials': true,
+                    'Content-Type': 'application/json',
+                    'X-Test-Header': 'wat',
+                },
 				body: JSON.stringify( {
 					success: good,
 					fail: all - good,

@@ -102,7 +102,7 @@ POST /submit
     required params: tweet (allows multiple, max 100 unique)
 
 * assembles all submitted tweets into an array and extracts valid tweet IDs using the following regex:
-        /(?:(?:https?:\/+)?\w.twitter.com\/)?([\w\d]+\/status\/)?(\d+)/ig
+        /(?:(?:https?:\/+)?(?:\w\.)?twitter.com\/)?([\w\d]+\/status\/)?(\d+)/ig
     then after a cursory deduping by tweet_id enqueues them into the SQS submissions queue
 
 Note: though simple numeric IDs are supported is it preferred to include the "$username/status/" portion of the path, for scraping purposes.
@@ -141,3 +141,16 @@ Special Modifying prefixes:
     all numeric strings are treated as tweetIds
 
 each modifier increases the rank score of results which use them... 'jason' will return the same results '@jason', but the latter will be scored at the top
+
+Note:  returned Object now includes a "scroll_id" member... this will be used for a search cursor
+
+POST /search
+    required parameter: scroll_id={valid scroll_id}
+
+returns the next 'page' of search results AND a NEW scroll_id.  You must always pass the LATEST scroll_id for your search when using this endpoint repeatedly
+
+DELETE /search
+    required parameter: scroll_id={valid scroll_id}
+
+releases system resources in ElasticSearch being used by the scrolled search.  Current resource timeout is 3 minutes, so searches will timeout naturall at 3min.
+It's just better to release these explicitly

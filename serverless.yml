@@ -3,13 +3,19 @@ service: tweetscraper
 plugins:
   - serverless-plugin-ifelse
   - serverless-offline
+  - serverless-s3-remover
+  # - aws-amplify-serverless-plugin
+  # - fullstack-serverless
 
 custom:
     is_local: ${env:IS_LOCAL, ""}
     is_offline: ${env:IS_OFFLINE, ""}
     serverless-offline:
         host: 0.0.0.0
-    Stage: ${opt:stage, 'dev'}
+    remover:
+        prompt: true
+        buckets:
+            - ${self:custom.TweetBucket}
     ServiceName: tweetscraper
     AccountId:
         Ref: "AWS::AccountId"
@@ -35,7 +41,8 @@ custom:
 
 provider:
     name: aws
-    stage: ${self:custom.Stage}
+    stage: ${opt:stage, 'dev'}
+    region: ${opt:region, 'us-west-2'}
     runtime: nodejs8.10
     memorySize: 128
     environment:
@@ -86,7 +93,14 @@ functions:
     index:
         handler: src/handlers/hello.main
         events:
-            - http: GET hello
+            - http:
+                method: GET
+                path: hello
+                cors: true
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
 
     scrape:
         handler: src/handlers/scrape.main
@@ -124,6 +138,31 @@ functions:
                     parameters:
                         querystrings:
                             q: true
+
+    scroll:
+        handler:  src/handlers/search.scroll
+        events:
+            - http:
+                method: POST
+                path: search
+                cors: true
+                request:
+                    parameters:
+                        querystrings:
+                            scroll_id: true
+
+    stop_scroll:
+        handler:  src/handlers/search.stop
+        events:
+            - http:
+                method: DELETE
+                path: search
+                cors: true
+                request:
+                    parameters:
+                        querystrings:
+                            scroll_id: true
+
 
     submit:
         # public, must have lots of sanity checking ... maybe isomorphic-ish to prevent scripting?

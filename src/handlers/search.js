@@ -13,6 +13,8 @@ const {
     ELASTIC_REGION
 } = process.env;
 
+const scroll_timeout = '3m';
+
 const clientconfig = {
     hosts: ELASTIC_HOST,
 	connectionClass: AWS_class,
@@ -113,11 +115,18 @@ module.exports.main = async (event, context) => {
 
     const fieldname = 'q';
     var queryString;
+    var querySort;
 
     if (event.queryStringParameters) console.log('single parameters', event.queryStringParameters)
-	if ( event.queryStringParameters && event.queryStringParameters[ fieldname ] ) {
-        queryString = event.queryStringParameters[ fieldname ];
-	}
+	if ( event.queryStringParameters ) {
+        if (event.queryStringParameters[ fieldname ]) {
+            queryString = event.queryStringParameters[ fieldname ];
+            querySort = '_score,timestamp: desc'
+        } else {
+            queryString = '*'
+            querySort = 'timestamp: desc'
+        }
+    }
 
     console.log('queryString', queryString);
 
@@ -244,15 +253,105 @@ module.exports.main = async (event, context) => {
     console.log('ES query', query)
     // console.log(JSON.stringify(query));
 
+    var status
 	var response = await client.search( {
         index: INDEX_NAME,
-        body: query
-    } );
+        body: query,
+        scroll: scroll_timeout,
+        size: 2,
+        sort: querySort || null
+    })
+    .catch(err => {
+        status = err.statusCode
+        console.log(err)
+    })
+
+    if (response && response.hits)
+        response.hits.scroll_id = response._scroll_id || null;
 
     // console.log(response);
 
     return {
-        statusCode: 200,
-        body: JSON.stringify(response.hits || {})
+        statusCode: (response && response.hits) ? 200 : (status || 500),
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Credentials': true,
+            'Content-Type': 'application/json'
+        },
+        body: response ? JSON.stringify(response.hits || {}) : null
     }
+}
+
+module.exports.scroll = async (event, context) => {
+    const fieldname = 'scroll_id';
+    var scroll_id
+
+    if (event.queryStringParameters) console.log('single parameters', event.queryStringParameters)
+    if ( event.queryStringParameters && event.queryStringParameters[ fieldname ]) {
+        scroll_id = event.queryStringParameters[ fieldname ];
+    }
+
+    if (!scroll_id) {
+        return { statusCode: 400 }
+    }
+
+    var status
+    var response = await client.scroll( {
+        scroll: scroll_timeout,
+        scroll_id: scroll_id
+    })
+    .catch(err => {
+        status = err.statusCode
+        console.log(err)
+    })
+
+    if (response && response.hits)
+        response.hits.scroll_id = response._scroll_id || null;
+
+    // console.log(response);
+
+    return {
+        statusCode: (response && response.hits) ? 200 : (status || 500),
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Credentials': true,
+            'Content-Type': 'application/json'
+        },
+        body: response ? JSON.stringify(response.hits || {}) : null
+    }
+
+}
+
+module.exports.stop = async (event, context) => {
+    const fieldname = 'scroll_id';
+    var scroll_id
+
+    if (event.queryStringParameters) console.log('single parameters', event.queryStringParameters)
+    if ( event.queryStringParameters && event.queryStringParameters[ fieldname ]) {
+        scroll_id = event.queryStringParameters[ fieldname ];
+    }
+
+    if (!scroll_id) {
+        return { statusCode: 400 }
+    }
+
+    var status
+    var response = await client.clearScroll( {
+        scrollId: [scroll_id]
+    })
+    .catch(err => {
+        status = err.statusCode
+        console.log(err)
+    })
+
+    return {
+        statusCode: (response && response.succeeded) ? 204 : (status || 500),
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Credentials': true,
+            'Content-Type': 'application/json'
+        },
+        // body: JSON.stringify(response.hits || {})
+    }
+
 }

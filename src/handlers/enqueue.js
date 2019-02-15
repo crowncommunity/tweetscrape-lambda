@@ -146,7 +146,12 @@ module.exports.main = async ( event, context ) => {
 
 			return {
 				statusCode: 200,
-				body: JSON.stringify( {
+                headers: {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Credentials': true,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify( {
 					success: good,
 					fail: all - good,
 					errors: errors
