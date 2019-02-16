@@ -4,7 +4,7 @@ plugins:
   - serverless-plugin-ifelse
   - serverless-offline
   - serverless-s3-remover
-  # - aws-amplify-serverless-plugin
+  - aws-amplify-serverless-plugin
   # - fullstack-serverless
 
 custom:
@@ -33,6 +33,10 @@ custom:
     ESScrollLimit: 25
     ESScrollTimeout: 3m
     local: ${file(./local-env.yml)}
+    amplify:
+        -   filename: aws-schema.js
+            type: javascript
+            appClient: CognitoUserPoolClient
     serverlessIfElse:
         -   If: '"x${self:custom.is_local}" == "x" && "x${self:custom.is_offline}" == "x"'
             Set:
@@ -144,7 +148,7 @@ functions:
                     parameters:
                         querystrings:
                             q: false
-                            scroll:id: false
+                            scroll_id: false
 
     stop_scroll:
         handler:  src/handlers/search.stop

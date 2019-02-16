@@ -20,6 +20,7 @@
   "devDependencies": {
     "@aws-amplify/api": "^1.0.26",
     "@aws-amplify/auth": "^1.2.15",
+    "aws-amplify-serverless-plugin": "^1.4.1",
     "serverless-offline": "^4.2.1",
     "serverless-plugin-ifelse": "^1.0.3",
     "serverless-s3-remover": "^0.6.0"
