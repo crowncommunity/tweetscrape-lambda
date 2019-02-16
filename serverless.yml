@@ -5,8 +5,8 @@ plugins:
   - serverless-offline
   - serverless-s3-remover
   - aws-amplify-serverless-plugin
-  # - fullstack-serverless
-
+  - serverless-s3-sync
+  
 custom:
     is_local: ${env:IS_LOCAL, ""}
     is_offline: ${env:IS_OFFLINE, ""}
@@ -16,10 +16,14 @@ custom:
         prompt: true
         buckets:
             - ${self:custom.TweetBucket}
+            - ${self:custom.WebappBucket}
+            - ${self:custom.AdminBucket}
     ServiceName: tweetscraper
     AccountId:
         Ref: "AWS::AccountId"
     TweetBucket: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-bucket
+    WebappBucket: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-webapp
+    AdminBucket: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-admin
     SubmissionQueue: ${self:custom.ServiceName}-${self:provider.stage}-submissions
     ScrapeQueue: ${self:custom.ServiceName}-${self:provider.stage}-queue
     ScrapeSearch: ${self:custom.ServiceName}-${self:provider.stage}-search
@@ -33,9 +37,15 @@ custom:
     ESScrollLimit: 25
     ESScrollTimeout: 3m
     local: ${file(./local-env.yml)}
+    apiPath: api
+    s3Sync:
+        -   bucketName: ${self:custom.WebappBucket}
+            localDir: app/site/dist
+        -   bucketName: ${self:custom.AdminBucket}
+            localDir: app/admin/dist
     amplify:
-        -   filename: aws-schema.js
-            type: javascript
+        -   filename: app/awsconfiguration.json
+            type: native
             appClient: CognitoUserPoolClient
     serverlessIfElse:
         -   If: '"x${self:custom.is_local}" == "x" && "x${self:custom.is_offline}" == "x"'
@@ -46,6 +56,12 @@ custom:
                 provider.environment.ACCOUNT_ID: ${self:custom.AccountId}
                 provider.environment.SEARCH_LIMIT: ${self:custom.ESScrollLimit}
                 provider.environment.SCROLL_TIMEOUT: ${self:custom.ESScrollTimeout}
+
+package:
+    exclude:
+        - node_modules/aws-sdk/**
+        - app/**
+        - .git/**
 
 provider:
     name: aws
@@ -105,7 +121,7 @@ functions:
         events:
             - http:
                 method: GET
-                path: hello
+                path: ${self:custom.apiPath}/hello
                 cors: true
                 authorizer:
                     type: COGNITO_USER_POOLS
@@ -127,12 +143,12 @@ functions:
         events:
             - http:
                 method: POST
-                path: enqueue
+                path: ${self:custom.apiPath}/enqueue
                 cors: true
-                # authorizer:
-                #     type: COGNITO_USER_POOLS
-                #     authorizerId:
-                #         Ref: ApiGatewayAuthorizer
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
                 request:
                     parameters:
                         querystrings:
@@ -142,7 +158,7 @@ functions:
         events:
             - http:
                 method: GET
-                path: search
+                path: ${self:custom.apiPath}/search
                 cors: true
                 request:
                     parameters:
@@ -155,7 +171,7 @@ functions:
         events:
             - http:
                 method: DELETE
-                path: search
+                path: ${self:custom.apiPath}/search
                 cors: true
                 request:
                     parameters:
@@ -169,7 +185,7 @@ functions:
         events:
             - http:
                 method: POST
-                path: submit
+                path: ${self:custom.apiPath}/submit
                 cors: true
                 request:
                     headers:
@@ -179,7 +195,7 @@ functions:
                             tweet: true
             - http:
                 method: GET
-                path: submit
+                path: ${self:custom.apiPath}/submit
                 cors: true
                 request:
                     headers:
@@ -189,7 +205,7 @@ functions:
                             tweet: true
             - http:
                 method: GET
-                path: submit/{tweet+}
+                path: ${self:custom.apiPath}/submit/{tweet+}
                 cors: true
                 request:
                     headers:
@@ -199,12 +215,12 @@ functions:
         events:
             - http:
                 method: GET
-                path: submissions
+                path: ${self:custom.apiPath}/submissions
                 cors: true
-                # authorizer:
-                #     type: COGNITO_USER_POOLS
-                #     authorizerId:
-                #         Ref: ApiGatewayAuthorizer
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
                 request:
                     headers:
                         Content-Type: application/json
@@ -216,12 +232,12 @@ functions:
         events:
             - http:
                 method: DELETE
-                path: submissions
+                path: ${self:custom.apiPath}/submissions
                 cors: true
-                # authorizer:
-                #     type: COGNITO_USER_POOLS
-                #     authorizerId:
-                #         Ref: ApiGatewayAuthorizer
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
                 request:
                     headers:
                         Content-Type: application/json
@@ -231,10 +247,6 @@ functions:
     # dedupe
         # triggered? or scheduled maybe
         # walks the queue looking for dupes and issues delete/messagevisibility as needed
-
-# maybe
-# if a submitted tweet is proven well formed, check if it already exists in ES
-
 
 resources:
     Resources:
@@ -259,7 +271,7 @@ resources:
                 CorsConfiguration:
                     CorsRules:
                         -   AllowedOrigins:
-                                - '*'
+                                - '*' # this needs to be set to some sort of domnainy thing
                             AllowedHeaders:
                                 - '*'
                             AllowedMethods:
@@ -269,7 +281,6 @@ resources:
                                 - DELETE
                                 - HEAD
                             MaxAge: 3000
-
         TweetImageBucketPolicy:
             Type: AWS::S3::BucketPolicy
             Properties:
@@ -357,13 +368,13 @@ resources:
                     - email
                 AutoVerifiedAttributes:
                     - email
-                # Policies:
-                #     PasswordPolicy:
-                #         MinimumLength: 12
-                #         RequireLowercase: true
-                #         RequireNumbers: true
-                #         RequireSymbols: true
-                #         RequireUppercase: true
+                Policies:
+                    PasswordPolicy:
+                        MinimumLength: 12
+                        RequireLowercase: true
+                        RequireNumbers: true
+                        RequireSymbols: true
+                        RequireUppercase: true
                 # MfaConfiguration: OPTIONAL
                 AdminCreateUserConfig:
                     AllowAdminCreateUserOnly: true
@@ -380,3 +391,317 @@ resources:
                 # might need this.. don't think so tho
                 # ExplicitAuthFlows:
                 #     - ADMIN_NO_SRP_AUTH
+
+### for cloudfront & s3 integration
+
+        S3OriginAccessIdentity:
+            Type: "AWS::CloudFront::CloudFrontOriginAccessIdentity"
+            Properties:
+                CloudFrontOriginAccessIdentityConfig:
+                    Comment: Serverless managed web app S3 bucket origin-access-identity
+
+        WebAppS3Bucket:
+            Type: AWS::S3::Bucket
+            Properties:
+                BucketName: ${self:custom.WebappBucket}
+                WebsiteConfiguration:
+                    IndexDocument: index.html
+                    ErrorDocument: error.html
+                VersioningConfiguration:
+                    Status: Enabled
+                CorsConfiguration:
+                    CorsRules:
+                        -   AllowedOrigins:
+                                - '*' # this needs to be set to some sort of domnainy thing
+                            AllowedHeaders:
+                                - '*'
+                            AllowedMethods:
+                                - GET
+                                - PUT
+                                - POST
+                                - DELETE
+                                - HEAD
+                            MaxAge: 3000
+        WebAppS3BucketPolicy:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+                Bucket:
+                    Ref: WebAppS3Bucket
+                PolicyDocument:
+                    Statement:
+                        -   Sid: OAIGetObject
+                            Effect: Allow
+                            Principal:
+                                AWS:
+                                    Fn::Join:
+                                        - " "
+                                        -   - arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity
+                                            - Ref: S3OriginAccessIdentity
+                            Action:
+                                - s3:GetObject
+                            Resource:
+                                Fn::Join:
+                                - ''
+                                -   - 'arn:aws:s3:::'
+                                    - Ref: WebAppS3Bucket
+                                    - "/*"
+                        # -   Sid: AllowPublicRead
+                        #     Effect: Allow
+                        #     Principal:
+                        #         AWS: '*'
+                        #     Action:
+                        #         - s3:GetObject
+                        #     Resource:
+                        #         Fn::Join:
+                        #             - ''
+                        #             -   - 'arn:aws:s3:::'
+                        #                 - Ref: WebAppS3Bucket
+                        #                 - "/*"
+
+        AdminS3Bucket:
+            Type: AWS::S3::Bucket
+            Properties:
+                BucketName: ${self:custom.AdminBucket}
+                WebsiteConfiguration:
+                    IndexDocument: index.html
+                    ErrorDocument: error.html
+                VersioningConfiguration:
+                    Status: Enabled
+                CorsConfiguration:
+                    CorsRules:
+                        -   AllowedOrigins:
+                                - '*' # this needs to be set to some sort of domnainy thing
+                            AllowedHeaders:
+                                - '*'
+                            AllowedMethods:
+                                - GET
+                                - PUT
+                                - POST
+                                - DELETE
+                                - HEAD
+                            MaxAge: 3000
+        AdminS3BucketPolicy:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+                Bucket:
+                    Ref: AdminS3Bucket
+                PolicyDocument:
+                    Statement:
+                        -   Sid: OAIGetObject
+                            Effect: Allow
+                            Principal:
+                                AWS:
+                                    Fn::Join:
+                                        - " "
+                                        -   - arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity
+                                            - Ref: S3OriginAccessIdentity
+                            Action:
+                                - s3:GetObject
+                            Resource:
+                                Fn::Join:
+                                    - ''
+                                    -   - 'arn:aws:s3:::'
+                                        - Ref: AdminS3Bucket
+                                        - "/*"
+                        # -   Sid: AllowPublicRead
+                        #     Effect: Allow
+                        #     Principal:
+                        #         AWS: '*'
+                        #     Action:
+                        #         - s3:GetObject
+                        #     Resource:
+                        #         Fn::Join:
+                        #             - ''
+                        #             -   - 'arn:aws:s3:::'
+                        #                 - Ref: AdminS3Bucket
+                        #                 - "/*"
+
+        ApiDistribution:
+            Type: AWS::CloudFront::Distribution
+            Properties:
+                DistributionConfig:
+                    Origins:
+                        -   Id: WebApp
+                            DomainName:
+                                Fn::GetAtt: [WebAppS3Bucket, DomainName]
+                            S3OriginConfig:
+                                OriginAccessIdentity:
+                                    Fn::Join:
+                                        - ''
+                                        -   - origin-access-identity/cloudfront/
+                                            - Ref: S3OriginAccessIdentity
+                                # CustomOriginConfig:
+                                #     HTTPPort: '80'
+                                #     HTTPSPort: '443'
+                                #     OriginProtocolPolicy: http-only
+                                #     OriginSSLProtocols: [ "TLSv1", "TLSv1.1", "TLSv1.2" ]
+                        -   Id: ApiGateway
+                            DomainName:
+                                Fn::Join:
+                                    - ""
+                                    -   - Ref: ApiGatewayRestApi
+                                        - ".execute-api."
+                                        - Ref: AWS::Region
+                                        - ".amazonaws.com"
+                            CustomOriginConfig:
+                                HTTPPort: '80'
+                                HTTPSPort: '443'
+                                OriginProtocolPolicy: https-only
+                                OriginSSLProtocols: [ "TLSv1", "TLSv1.1", "TLSv1.2" ]
+                            OriginPath: /${self:provider.stage}
+                    Enabled: true
+                    HttpVersion: http2
+                    Comment: cdn for api gateway
+                    # Aliases:
+                    #     - domain.tld # ???
+                    PriceClass: PriceClass_All
+                    DefaultRootObject: index.html
+                ## Since the Single Page App is taking care of the routing we need to make sure ever path is served with index.html
+                ## The only exception are files that actually exist e.h. app.js, reset.css
+                    CustomErrorResponses:
+                        -   ErrorCode: 403
+                            ResponseCode: 200
+                            ResponsePagePath: /index.html
+                    DefaultCacheBehavior:
+                        AllowedMethods:
+                            - GET
+                            - HEAD
+                            - OPTIONS
+                        ## The origin id defined above
+                        TargetOriginId: WebApp
+                        ## Defining if and how the QueryString and Cookies are forwarded to the origin which in this case is S3
+                        ForwardedValues:
+                            QueryString: false
+                            Cookies:
+                                Forward: none
+                        ## The protocol that users can use to access the files in the origin. To allow HTTP use `allow-all`
+                        ViewerProtocolPolicy: redirect-to-https
+                    CacheBehaviors:
+                        -   TargetOriginId: ApiGateway
+                            PathPattern: api/*
+                            AllowedMethods:
+                                - DELETE
+                                - GET
+                                - HEAD
+                                - OPTIONS
+                                - PATCH
+                                - POST
+                                - PUT
+                            CachedMethods:
+                                - HEAD
+                                - GET
+                            ForwardedValues:
+                                QueryString: true
+                                Headers:
+                                    - Accept
+                                    - Referer
+                                    - Authorization
+                                    - Content-Type
+                                Cookies:
+                                    Forward: all
+                            MinTTL: '0'
+                            DefaultTTL: '0'
+                            ViewerProtocolPolicy: https-only
+                    # ViewerCertificate:
+                    #     AcmCertificateArn: arn
+                    #     SslSupportMethod: sni-only
+                    # Logging:
+                    #     IncludeCookies: 'false'
+                    #     Bucket: ''
+                    #     Prefix: ''
+                    # WebACLId: waf-id
+
+        AdminDistribution:
+            Type: AWS::CloudFront::Distribution
+            Properties:
+                DistributionConfig:
+                    Origins:
+                        -   Id: Admin
+                            DomainName:
+                                Fn::GetAtt: [AdminS3Bucket, DomainName]
+                            S3OriginConfig:
+                                OriginAccessIdentity:
+                                    Fn::Join:
+                                        - ''
+                                        -   - origin-access-identity/cloudfront/
+                                            - Ref: S3OriginAccessIdentity
+                                # CustomOriginConfig:
+                                #     HTTPPort: '80'
+                                #     HTTPSPort: '443'
+                                #     OriginProtocolPolicy: http-only
+                                #     OriginSSLProtocols: [ "TLSv1", "TLSv1.1", "TLSv1.2" ]
+                        -   Id: ApiGateway
+                            DomainName:
+                                Fn::Join:
+                                    - ""
+                                    -   - Ref: ApiGatewayRestApi
+                                        - ".execute-api."
+                                        - Ref: AWS::Region
+                                        - ".amazonaws.com"
+                            CustomOriginConfig:
+                                HTTPPort: '80'
+                                HTTPSPort: '443'
+                                OriginProtocolPolicy: https-only
+                                OriginSSLProtocols: [ "TLSv1", "TLSv1.1", "TLSv1.2" ]
+                            OriginPath: /${self:provider.stage}
+                    Enabled: true
+                    HttpVersion: http2
+                    Comment: cdn for api gateway
+                    # Aliases:
+                    #     - domain.tld # ???
+                    PriceClass: PriceClass_All
+                    DefaultRootObject: index.html
+                ## Since the Single Page App is taking care of the routing we need to make sure ever path is served with index.html
+                ## The only exception are files that actually exist e.h. app.js, reset.css
+                    CustomErrorResponses:
+                        -   ErrorCode: 403
+                            ResponseCode: 200
+                            ResponsePagePath: /index.html
+                    DefaultCacheBehavior:
+                        AllowedMethods:
+                            - GET
+                            - HEAD
+                            - OPTIONS
+                        ## The origin id defined above
+                        TargetOriginId: Admin
+                        ## Defining if and how the QueryString and Cookies are forwarded to the origin which in this case is S3
+                        ForwardedValues:
+                            QueryString: false
+                            Cookies:
+                                Forward: none
+                        ## The protocol that users can use to access the files in the origin. To allow HTTP use `allow-all`
+                        ViewerProtocolPolicy: redirect-to-https
+                    CacheBehaviors:
+                        -   TargetOriginId: ApiGateway
+                            PathPattern: api/*
+                            AllowedMethods:
+                                - DELETE
+                                - GET
+                                - HEAD
+                                - OPTIONS
+                                - PATCH
+                                - POST
+                                - PUT
+                            CachedMethods:
+                                - HEAD
+                                - GET
+                            ForwardedValues:
+                                QueryString: true
+                                Headers:
+                                    - Accept
+                                    - Referer
+                                    - Authorization
+                                    - Content-Type
+                                Cookies:
+                                    Forward: all
+                            MinTTL: '0'
+                            DefaultTTL: '0'
+                            ViewerProtocolPolicy: https-only
+                    # ViewerCertificate:
+                    #     AcmCertificateArn: arn
+                    #     SslSupportMethod: sni-only
+                    # Logging:
+                    #     IncludeCookies: 'false'
+                    #     Bucket: ''
+                    #     Prefix: ''
+                    # WebACLId: waf-id

@@ -23,6 +23,7 @@
     "aws-amplify-serverless-plugin": "^1.4.1",
     "serverless-offline": "^4.2.1",
     "serverless-plugin-ifelse": "^1.0.3",
-    "serverless-s3-remover": "^0.6.0"
+    "serverless-s3-remover": "^0.6.0",
+    "serverless-s3-sync": "^1.7.2"
   }
 }
