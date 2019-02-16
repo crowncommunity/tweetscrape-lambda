@@ -30,6 +30,8 @@ custom:
             - DomainEndpoint
     ESRegion:
         Ref: "AWS::Region"
+    ESScrollLimit: 25
+    ESScrollTimeout: 3m
     local: ${file(./local-env.yml)}
     serverlessIfElse:
         -   If: '"x${self:custom.is_local}" == "x" && "x${self:custom.is_offline}" == "x"'
@@ -38,6 +40,8 @@ custom:
                 provider.environment.ELASTIC_REGION: ${self:custom.ESRegion}
                 provider.environment.SCRAPE_LIMIT: ${self:custom.ScrapeThrottleTTL}
                 provider.environment.ACCOUNT_ID: ${self:custom.AccountId}
+                provider.environment.SEARCH_LIMIT: ${self:custom.ESScrollLimit}
+                provider.environment.SCROLL_TIMEOUT: ${self:custom.ESScrollTimeout}
 
 provider:
     name: aws
@@ -51,10 +55,12 @@ provider:
         S3_SAVE_BUCKET: ${self:custom.TweetBucket}
         SUBMIT_QUEUE: ${self:custom.SubmissionQueue}
         SCRAPE_QUEUE: ${self:custom.ScrapeQueue}
-        ELASTIC_HOST: ${self:custom.local.ESEndPoint}
-        ELASTIC_REGION: ${self:custom.local.ESRegion}
-        SCRAPE_LIMIT: ${self:custom.local.ScrapeThrottleTTL}
-        ACCOUNT_ID: ${self:custom.local.AccountId}
+        ELASTIC_HOST: ${self:custom.local.ESEndPoint, self:custom.ESEndPoint}
+        ELASTIC_REGION: ${self:custom.local.ESRegion, self:custom.ESRegion}
+        SCRAPE_LIMIT: ${self:custom.local.ScrapeThrottleTTL, self:custom.ScrapeThrottleTTL}
+        ACCOUNT_ID: ${self:custom.local.AccountId, self:custom.AccountId}
+        SEARCH_LIMIT: ${self:custom.local.ESScrollLimit, self:custom.ESScrollLimit}
+        SCROLL_TIMEOUT: ${self:custom.local.ESScrollTimeout, self:custom.ESScrollTimeout}
 
     iamRoleStatements:
         -   Effect: Allow
@@ -137,19 +143,8 @@ functions:
                 request:
                     parameters:
                         querystrings:
-                            q: true
-
-    scroll:
-        handler:  src/handlers/search.scroll
-        events:
-            - http:
-                method: POST
-                path: search
-                cors: true
-                request:
-                    parameters:
-                        querystrings:
-                            scroll_id: true
+                            q: false
+                            scroll:id: false
 
     stop_scroll:
         handler:  src/handlers/search.stop

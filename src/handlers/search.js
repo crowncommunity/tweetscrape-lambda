@@ -10,7 +10,9 @@ const {
     AWS_SECRET_ACCESS_KEY,
     INDEX_NAME,
     ELASTIC_HOST,
-    ELASTIC_REGION
+    ELASTIC_REGION,
+    SEARCH_LIMIT,
+    SCROLL_TIMEOUT
 } = process.env;
 
 const scroll_timeout = '3m';
@@ -111,7 +113,7 @@ const betterTokenize = str => {
     return tokens;
 }
 
-module.exports.main = async (event, context) => {
+const doSearch = async (event, context) => {
 
     const fieldname = 'q';
     var queryString;
@@ -257,8 +259,8 @@ module.exports.main = async (event, context) => {
 	var response = await client.search( {
         index: INDEX_NAME,
         body: query,
-        scroll: scroll_timeout,
-        size: 25,
+        scroll: SCROLL_TIMEOUT || '3m',
+        size: SEARCH_LIMIT || 10,
         sort: querySort || null
     })
     .catch(err => {
@@ -282,7 +284,7 @@ module.exports.main = async (event, context) => {
     }
 }
 
-module.exports.scroll = async (event, context) => {
+const doScroll = async (event, context) => {
     const fieldname = 'scroll_id';
     var scroll_id
 
@@ -320,6 +322,27 @@ module.exports.scroll = async (event, context) => {
         body: response ? JSON.stringify(response.hits || {}) : null
     }
 
+}
+
+module.exports.main = async (event, context) => {
+    try {
+        if (event.queryStringParameters) {
+            console.log('single parameters', event.queryStringParameters)
+
+            if (event.queryStringParameters[ 'scroll_id' ]) {
+                return doScroll(event, context)
+            }
+
+            // if (event.queryStringParameters[ 'q' ]) {
+            return doSearch(event, context)
+            // }
+        }
+    } catch (e) {
+        console.log(e);
+        return { statusCode: 500 }
+    }
+
+    return { statusCode: 400 }
 }
 
 module.exports.stop = async (event, context) => {
