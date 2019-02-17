@@ -144,7 +144,7 @@ each modifier increases the rank score of results which use them... 'jason' will
 
 Note:  returned Object now includes a "scroll_id" member... this will be used for a search cursor
 
-POST /search
+GET /search
     required parameter: scroll_id={valid scroll_id}
 
 returns the next 'page' of search results AND a NEW scroll_id.  You must always pass the LATEST scroll_id for your search when using this endpoint repeatedly
