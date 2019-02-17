@@ -6,7 +6,7 @@ plugins:
   - serverless-s3-remover
   - aws-amplify-serverless-plugin
   - serverless-s3-sync
-  
+
 custom:
     is_local: ${env:IS_LOCAL, ""}
     is_offline: ${env:IS_OFFLINE, ""}
@@ -551,7 +551,7 @@ resources:
                             OriginPath: /${self:provider.stage}
                     Enabled: true
                     HttpVersion: http2
-                    Comment: cdn for api gateway
+                    Comment: ${self:provider.stage} - cdn for webapp
                     # Aliases:
                     #     - domain.tld # ???
                     PriceClass: PriceClass_All
@@ -646,7 +646,7 @@ resources:
                             OriginPath: /${self:provider.stage}
                     Enabled: true
                     HttpVersion: http2
-                    Comment: cdn for api gateway
+                    Comment: ${self:provider.stage} - cdn for admin
                     # Aliases:
                     #     - domain.tld # ???
                     PriceClass: PriceClass_All

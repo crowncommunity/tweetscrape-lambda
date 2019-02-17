@@ -1,5 +1,5 @@
 const fs = require('fs');
-const schema = JSON.parse(fs.readFileSync('./awsconfiguration.json'))
+const schema = JSON.parse(fs.readFileSync(__dirname + '/awsconfiguration.json'))
 
 // console.log(schema);
 
