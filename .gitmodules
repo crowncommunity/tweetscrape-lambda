@@ -1,0 +1,6 @@
+[submodule "app/site"]
+	path = app/site
+	url = git@github.com:arempe93/verifiedbullies.git
+[submodule "app/admin"]
+	path = app/admin
+	url = git@github.com:arempe93/verifiedbullies-admin.git
