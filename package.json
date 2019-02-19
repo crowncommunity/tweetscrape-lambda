@@ -13,6 +13,7 @@
     "aws-sign-requests": "^0.4.0",
     "elasticsearch": "^15.3.1",
     "http-aws-es": "^6.0.0",
+    "is-scalar": "^1.0.2",
     "middy": "^0.22.0",
     "node-fetch": "^2.3.0",
     "serverless": "^1.36.3"

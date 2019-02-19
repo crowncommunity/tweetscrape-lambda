@@ -24,6 +24,7 @@ custom:
     TweetBucket: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-bucket
     WebappBucket: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-webapp
     AdminBucket: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-admin
+    TweetModificationTable: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-modification
     SubmissionQueue: ${self:custom.ServiceName}-${self:provider.stage}-submissions
     ScrapeQueue: ${self:custom.ServiceName}-${self:provider.stage}-queue
     ScrapeSearch: ${self:custom.ServiceName}-${self:provider.stage}-search
@@ -75,6 +76,7 @@ provider:
         S3_SAVE_BUCKET: ${self:custom.TweetBucket}
         SUBMIT_QUEUE: ${self:custom.SubmissionQueue}
         SCRAPE_QUEUE: ${self:custom.ScrapeQueue}
+        MODIFICATION_TABLE: ${self:custom.TweetModificationTable}
         ELASTIC_HOST: ${self:custom.local.ESEndPoint, self:custom.ESEndPoint}
         ELASTIC_REGION: ${self:custom.local.ESRegion, self:custom.ESRegion}
         SCRAPE_LIMIT: ${self:custom.local.ScrapeThrottleTTL, self:custom.ScrapeThrottleTTL}
@@ -111,13 +113,18 @@ provider:
             Resource:
                 - arn:aws:s3:::${self:custom.TweetBucket}/*
                 - arn:aws:s3:::${self:custom.TweetBucket}
+        -   Effect: Allow
+            Action:
+                - dynamodb:*
+            Resource:
+                - arn:aws:dynamodb:*:*:table/${self:custom.TweetModificationTable}
 
 functions:
     initialize:
         handler: src/handlers/initialize.main
 
     index:
-        handler: src/handlers/hello.main
+        handler: src/handlers/test.hello
         events:
             - http:
                 method: GET
@@ -128,8 +135,50 @@ functions:
                     authorizerId:
                         Ref: ApiGatewayAuthorizer
 
+    # logevent:
+    #     handler: src/handlers/test.logevent
+    #     reservedConcurrency: 3
+    #     timeout: 60
+    #     events:
+    #         - stream:
+    #             type: dynamodb
+    #             batchSize: 100
+    #             startingPosition: LATEST
+    #             arn:
+    #                 Fn::GetAtt:
+    #                     - TweetModificationDynamoTable
+    #                     - StreamArn
+    #         #### THIS IS LAME AS FUCK SERVERLESS... CONFIGURED DOWN BELOW
+    #         # - s3:
+    #         #     event: s3:ObjectCreated:*
+    #         #     bucket: ${self:custom.TweetBucket}
+    #         #     rules:
+    #         #         - suffix: .json
+
+
+    tweetmodification:
+        handler: src/handlers/tweet.modify
+        reservedConcurrency: 3
+        events:
+            - stream:
+                type: dynamodb
+                batchSize: 100
+                startingPosition: LATEST
+                arn:
+                    Fn::GetAtt:
+                        - TweetModificationDynamoTable
+                        - StreamArn
+            #### THIS IS LAME AS FUCK SERVERLESS... CONFIGURED DOWN BELOW
+            # - s3:
+            #     event: s3:ObjectCreated:*
+            #     bucket: ${self:custom.TweetBucket}
+            #     rules:
+            #         - suffix: .json
+
     scrape:
         handler: src/handlers/scrape.main
+        reservedConcurrency: 3
+        timeout: 60
         events:
             - sqs:
                 arn:
@@ -137,7 +186,7 @@ functions:
                         - ScrapeQueue
                         - Arn
                 batchSize: 10
-        reservedConcurrency: 3
+
     enqueue:
         handler: src/handlers/enqueue.main
         events:
@@ -262,6 +311,7 @@ resources:
                 QueueName: ${self:custom.SubmissionQueue}
                 VisibilityTimeout: 900
                 MessageRetentionPeriod: 1209600
+
         TweetImageBucket:
             Type: AWS::S3::Bucket
             Properties:
@@ -281,6 +331,18 @@ resources:
                                 - DELETE
                                 - HEAD
                             MaxAge: 3000
+                NotificationConfiguration:
+                    LambdaConfigurations:
+                        -   Event: s3:ObjectCreated:*
+                            Function:
+                                Fn::GetAtt:
+                                  - TweetmodificationLambdaFunction
+                                  - Arn
+                            Filter:
+                                S3Key:
+                                    Rules:
+                                        -   Name: suffix
+                                            Value: ".json"
         TweetImageBucketPolicy:
             Type: AWS::S3::BucketPolicy
             Properties:
@@ -299,6 +361,22 @@ resources:
                                         -   - "arn:aws:iam:"
                                             - Ref: 'AWS::AccountId'
                                             - "root"
+        TweetImageBucketLambdaPermissions:
+            Type: AWS::Lambda::Permission
+            Properties:
+                FunctionName:
+                    Fn::GetAtt:
+                        - TweetmodificationLambdaFunction #### this will need to be our real function
+                        - Arn
+                Principal: s3.amazonaws.com
+                Action: lambda:InvokeFunction
+                SourceAccount:
+                    Ref: AWS::AccountId
+                SourceArn:
+                    Fn::GetAtt:
+                        - TweetImageBucket
+                        - Arn
+
 
         ElasticSearchInstance:
             Type: AWS::Elasticsearch::Domain
@@ -345,6 +423,42 @@ resources:
                                         - "domain/${self:custom.ScrapeSearch}/*"
                             Principal:
                                 AWS: '*'
+
+        TweetModificationDynamoTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:custom.TweetModificationTable}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    -   AttributeName: TweetId
+                        AttributeType: N
+                    -   AttributeName: Timestamp
+                        AttributeType: N
+                    ### apparently this can only list keys
+                    # -   AttributeName: User
+                    #     AttributeType: S
+                    # -   AttributeName: Parent
+                    #     AttributeType: N
+                    # -   AttributeName: Action
+                    #     AttributeType: S
+                    # -   AttributeName: Field
+                    #     AttributeType: S
+                    # -   AttributeName: Content
+                    #     AttributeType: S
+                KeySchema:
+                    -   AttributeName: TweetId
+                        KeyType: "HASH"
+                    -   AttributeName: Timestamp
+                        KeyType: "RANGE"
+                # ProvisionedThroughput:
+                #     ReadCapacityUnits: 5
+                #     WriteCapacityUnits: 5
+                StreamSpecification:
+                    StreamViewType: NEW_IMAGE
+
+        # TweetModificationDynamoTablePolicy:
+        #     Type: AWS::IAM::Policy
+        #     DependsOn:
 
         ApiGatewayAuthorizer:
             Type: AWS::ApiGateway::Authorizer
