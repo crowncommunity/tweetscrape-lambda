@@ -193,29 +193,6 @@ const doScrape = async ( event, context ) => {
 		.catch( e => {
 			console.log( 'S3 Upload Error', e );
 		} )
-		.then( up => {
-			// delete json.tweetData.screenshot
-
-			if ( !up ) return;
-
-            console.log('Tweet Data Successfully uploaded to S3 Bucket');
-/**
- *
- * index mapping enabled=false means we can store the image w/o blowing out the index
- *
- * also might need to use explicit insert/update with code scripts on update, for proper data merging
- *
- */
-			return client.update( {
-				index: INDEX_NAME,
-				type: '_doc',
-				id: json.tweetData.tweetId,
-				body: {
-					doc: json,
-					doc_as_upsert: true
-				}
-			} )
-		} )
 		.then( resp => {
             console.log('Success', resp)
 			return resp;

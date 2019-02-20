@@ -291,6 +291,63 @@ functions:
                     headers:
                         Content-Type: application/json
 
+    taxonomyPost:
+        handler: src/handlers/taxonomy.post
+        events:
+            - http:
+                method: POST
+                path: ${self:custom.apiPath}/taxonomy/{tweet_id}
+                cors: true
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
+                request:
+                    headers:
+                        Content-Type: application/json
+    taxonomyPut:
+        handler: src/handlers/taxonomy.post
+        events:
+            - http:
+                method: PUT
+                path: ${self:custom.apiPath}/taxonomy/{tweet_id}
+                cors: true
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
+                request:
+                    headers:
+                        Content-Type: application/json
+    taxonomyPatch:
+        handler: src/handlers/taxonomy.post
+        events:
+            - http:
+                method: PATCH
+                path: ${self:custom.apiPath}/taxonomy/{tweet_id}
+                cors: true
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
+                request:
+                    headers:
+                        Content-Type: application/json
+    taxonomyDelete:
+        handler: src/handlers/taxonomy.post
+        events:
+            - http:
+                method: DELETE
+                path: ${self:custom.apiPath}/taxonomy/{tweet_id}
+                cors: true
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
+                request:
+                    headers:
+                        Content-Type: application/json
+
     # tweet:
         # direct to S3, public
     # dedupe

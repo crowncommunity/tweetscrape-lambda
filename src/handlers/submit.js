@@ -136,7 +136,6 @@ module.exports.main = async ( event, context ) => {
                     'Access-Control-Allow-Origin': '*',
                     'Access-Control-Allow-Credentials': true,
                     'Content-Type': 'application/json',
-                    'X-Test-Header': 'wat',
                 },
 				body: JSON.stringify( {
 					success: good,
