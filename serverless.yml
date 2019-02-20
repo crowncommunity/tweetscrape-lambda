@@ -371,6 +371,9 @@ resources:
 
         TweetImageBucket:
             Type: AWS::S3::Bucket
+            DependsOn:
+                # - TweetImageBucketLambdaPermissions
+                - TweetmodificationLambdaFunction
             Properties:
                 BucketName: ${self:custom.TweetBucket}
                 VersioningConfiguration:
@@ -388,6 +391,7 @@ resources:
                                 - DELETE
                                 - HEAD
                             MaxAge: 3000
+                # FUCKING FUCKING LAME... MAKE SURE TO LINK LAMBDA MANUALLY IN CONSOLE
                 NotificationConfiguration:
                     LambdaConfigurations:
                         -   Event: s3:ObjectCreated:*
@@ -419,6 +423,8 @@ resources:
                                             - Ref: 'AWS::AccountId'
                                             - "root"
         TweetImageBucketLambdaPermissions:
+            # DependsOn:
+            #     - Ref: TweetImageBucket
             Type: AWS::Lambda::Permission
             Properties:
                 FunctionName:
