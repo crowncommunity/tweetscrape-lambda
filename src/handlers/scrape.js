@@ -182,6 +182,9 @@ const doScrape = async ( event, context ) => {
 		}
 	}
 
+    delete json.parents
+    delete json.replies
+
 	var resp = await bucket.putObject( {
 			Bucket: S3_SAVE_BUCKET,
 			Key: json.tweetData.tweetId + '.json',

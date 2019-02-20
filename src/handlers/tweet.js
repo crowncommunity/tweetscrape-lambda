@@ -34,6 +34,9 @@ const bucket = new AWS.S3( {
 	credentials: credentials,
 } )
 
+const reserved = ['tweetData','timestamp', 'metadata']
+const allowed = ['INSERT', 'REPLACE', 'APPEND', 'REMOVE', 'DELETE'];
+const retries = 3;
 
 const normalize = obj => {
     let normalized = {}
@@ -121,6 +124,7 @@ const bucketEvent = async record => {
             index: INDEX_NAME,
             type: '_doc',
             id: tweetId,
+            retryOnConflict: retries,
         	body: {
         		doc: document,
         		doc_as_upsert: true
@@ -132,37 +136,38 @@ const bucketEvent = async record => {
 
 const tableEvent = async record => {
     // console.log('table record', record)
+    try {
+        if (!record.dynamodb) {
+            throw new Error ('invalid record object. missing record');
+        }
 
-    if (!record.dynamodb) {
-        throw new Error ('invalid record object. missing record');
-    }
+        var item = record.dynamodb;
 
-    const item = record.dynamodb;
+        var keys = normalize(item.Keys).normalized;
 
-    const keys = normalize(item.Keys).normalized;
+        if(!keys.TweetId) {
+            throw new Error('invalid record object, missing id');
+        }
 
-    if(!keys.TweetId) {
-        throw new Error('invalid record object, missing id');
-    }
+        var data = normalize(item.NewImage).normalized;
 
-    const data = normalize(item.NewImage).normalized;
+        if (allowed.indexOf(data.Action || null) < 0) {
+            throw new Error('Invalid Action Type ' + data.Action);
+        }
 
-    // console.log(keys, data);
+        if (!data.Field) {
+            throw new Error('Field must be present')
+        }
 
-    const allowed = ['INSERT', 'REPLACE', 'APPEND', 'REMOVE', 'DELETE'];
+        if (!data.Field.match(/^\w[\d\w]+$/)) {
+            throw new Error('Field name may only contain word characters and digits, and must begin with a word character')
+        }
 
-    // console.log(data.Action, allowed.indexOf(data.Action || null) >= 0);
-
-    if (allowed.indexOf(data.Action || null) < 0) {
-        throw new Error('Invalid Action Type ' + data.Action);
-    }
-
-    if (!data.Field) {
-        throw new Error('Field must be present')
-    }
-
-    if (!data.Field.match(/^\w[\d\w]+$/)) {
-        throw new Error('Field name may only contain word characters and digits, and must begin with a word character')
+        if (reserved.indexOf(data.Field) > -1) {
+            throw new Error('Reserved Field Name Error')
+        }
+    } catch (e) {
+        return { DataError: e }
     }
 
     return client.get({
@@ -187,32 +192,37 @@ const tableEvent = async record => {
         switch(data.Action) {
             case 'INSERT':
             case 'REPLACE':
-                if (!data.Content) {
-                    throw new Error('Content must be present for action type' + data.Action);
-                }
-                m = data.Content.match(/^[\s\r\n]*[\{\[]/);
-                if (m) {
-                    data.Content = JSON.parse(data.Content)
-                }
-                if (!data.Content) {
-                    throw new Error('Content parse error. must be scalar value or JSON string');
-                }
-
-                newData = {
-                    metadata: {
-                        [data.Field] : data.Content,
-                        version: data.Timestamp,
-                        parent: current.metadata && current.metadata.version || "0",
-                        lastUpdatedBy: data.User || 'system',
+                try {
+                    if (!data.Content) {
+                        throw new Error('Content must be present for action type' + data.Action);
                     }
-                }
+                    m = data.Content.match(/^[\s\r\n]*[\{\[]/);
+                    if (m) {
+                        data.Content = JSON.parse(data.Content)
+                    }
+                    if (!data.Content) {
+                        throw new Error('Content parse error. must be scalar value or JSON string');
+                    }
 
-                console.log('new data', newData);
+                    newData = {
+                        [data.Field] : data.Content,
+                        metadata: {
+                            version: data.Timestamp,
+                            parent: current.metadata && current.metadata.version || "0",
+                            lastUpdatedBy: data.User || 'system',
+                        }
+                    }
+
+                    console.log('new data', newData);
+                } catch (e) {
+                    return { DataError: e }
+                }
 
                 return client.update( {
                     index: INDEX_NAME,
             	    type: '_doc',
                     id: keys.TweetId,
+                    retryOnConflict: retries,
                     body: {
                         doc: newData,
                         doc_as_upsert: true
@@ -221,55 +231,59 @@ const tableEvent = async record => {
                 break;
 
             case 'APPEND':
+                // we /could/ actually foece convert scalar to array... hmmmm
             case 'REMOVE':
-                // console.log(typeof current.metadata[data.Field]);
-                // console.log(Array.isArray(current.metadata[data.Field]));
-                if (current.metadata[data.Field] && !Array.isArray(current.metadata[data.Field])) {
-                    throw new Error('Data Error. Data field must be an Array for action type ' + data.Action);
-                }
-                if (!data.Content) {
-                    throw new Error('Content must be present for action type' + data.Action);
-                }
-                m = data.Content.match(/^[\s\r\n]*[\{\[]/);
-                if (m) {
-                    data.Content = JSON.parse(data.Content)
-                }
-                if (!data.Content) {
-                    throw new Error('Content parse error. must be scalar value or JSON string');
-                }
-
-                if (isScalar(data.Content)) {
-                    data.Content = [data.Content];
-                }
-                if (!Array.isArray(data.Content)) {
-                    throw new Error ('Content error. must be a scalar value or array');
-                }
-
-                if (data.Action == 'APPEND') {
-                    newField = (current.metadata[data.Field] || []).concat(data.Content).filter( (item, index, myself) => {
-                        return myself.indexOf(item) >= index;
-                    })
-                } else {
-                    newField = (current.metadata[data.Field] || []).filter((item, index) => {
-                        return data.Content.indexOf(item) < 0
-                    })
-                }
-
-                newData = {
-                    metadata: {
-                        [data.Field] : newField,
-                        version: data.Timestamp,
-                        parent: current.metadata && current.metadata.version || "0",
-                        lastUpdatedBy: data.User || 'system',
+                try {
+                    if (current[data.Field] && !Array.isArray(current[data.Field])) {
+                        throw new Error('Data Error. Data field must be an Array for action type ' + data.Action);
                     }
-                }
+                    if (!data.Content) {
+                        throw new Error('Content must be present for action type' + data.Action);
+                    }
+                    m = data.Content.match(/^[\s\r\n]*[\{\[]/);
+                    if (m) {
+                        data.Content = JSON.parse(data.Content)
+                    }
+                    if (!data.Content) {
+                        throw new Error('Content parse error. must be scalar value or JSON string');
+                    }
 
-                console.log('new data', newData);
+                    if (isScalar(data.Content)) {
+                        data.Content = [data.Content];
+                    }
+                    if (!Array.isArray(data.Content)) {
+                        throw new Error ('Content error. must be a scalar value or array');
+                    }
+
+                    if (data.Action == 'APPEND') {
+                        newField = (current[data.Field] || []).concat(data.Content).filter( (item, index, myself) => {
+                            return myself.indexOf(item) >= index;
+                        })
+                    } else {
+                        newField = (current[data.Field] || []).filter((item, index) => {
+                            return data.Content.indexOf(item) < 0
+                        })
+                    }
+
+                    newData = {
+                        [data.Field] : newField,
+                        metadata: {
+                            version: data.Timestamp,
+                            parent: current.metadata && current.metadata.version || "0",
+                            lastUpdatedBy: data.User || 'system',
+                        }
+                    }
+
+                    console.log('new data', newData);
+                } catch (e) {
+                    return { DataError: e }
+                }
 
                 return client.update( {
                     index: INDEX_NAME,
             	    type: '_doc',
             	    id: keys.TweetId,
+                    retryOnConflict: retries,
             	    body: {
                         doc: newData,
                         doc_as_upsert: true
@@ -279,8 +293,8 @@ const tableEvent = async record => {
 
             case 'DELETE':
                 newData = {
+                    [data.Field] : null,
                     metadata: {
-                        [data.Field] : null,
                         version: data.Timestamp,
                         parent: current.metadata && current.metadata.version || "0",
                         lastUpdatedBy: data.User || 'system',
@@ -294,6 +308,7 @@ const tableEvent = async record => {
                     index: INDEX_NAME,
                     type: '_doc',
                     id: keys.TweetId,
+                    retryOnConflict: retries,
                     body: {
                         doc: newData,
                         doc_as_upsert: true,
@@ -303,8 +318,9 @@ const tableEvent = async record => {
                         index: INDEX_NAME,
                         type: '_doc',
                         id: keys.TweetId,
+                        retryOnConflict: retries,
                         body: {
-                            script: 'ctx._source.metadata.remove("' + data.Field + '")'
+                            script: 'ctx._source.remove("' + data.Field + '")'
                         }
                     })
                 })
@@ -352,13 +368,27 @@ module.exports.modify = async ( event, context ) => {
                     default:
                         console.log('unknown record source', record);
                 }
-                if (res) {
+                if (res && !res.DataError) {
                     return res.then(ret => {
                         return {
                             result: 1,
-                            res
+                            return: ret
+                        }
+                    }).catch (err => {
+                        errors.push(err)
+                        return {
+                            result: -1,
+                            message: err.message,
+                            error: err
                         }
                     })
+                } else if (res.DataError) {
+                    errors.push(res.DataError)
+                    return {
+                        result: -1,
+                        message: res.DataError.message,
+                        error: res.DataError
+                    }
                 } else {
                     return {
                         result: 0
@@ -366,11 +396,10 @@ module.exports.modify = async ( event, context ) => {
                 }
             } catch (e) {
                 errors.push(e);
-                // return Promise.reject(e);
                 return {
                     result: -1,
                     message: e.message,
-                    e
+                    error: e
                 }
             }
         })

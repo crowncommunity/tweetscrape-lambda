@@ -154,3 +154,39 @@ DELETE /search
 
 releases system resources in ElasticSearch being used by the scrolled search.  Current resource timeout is 3 minutes, so searches will timeout naturall at 3min.
 It's just better to release these explicitly
+
+***
+These next 4 end points fairly strongly adhere to RESTful standards
+
+These endpoints are actions for managing the metadata object of an ES tweet record.
+for each of these endpoints you must pass a flat JSON object: field => value.
+values can be scalar or an array of scalars.. any other data will result in an http error
+example:
+{
+    "category": "bad guys",
+    "tags": ["us", "them"]
+}
+
+hitting these endpoints will NOT result in immediate data change.  This is an async process.  these endpoints write to a dynamoDB table,
+which fires a lambda trigger that merges the record into the ES document for the tweet_id
+
+POST /taxonomy/{tweet_id}
+Note: Content-Type MUST be set to application/json
+
+strictly for creating a new metadata field. will error if metadata already exists in the table
+
+PUT /taxonomy/{tweet_id}
+Note: Content-Type MUST be set to application/json
+
+for creating or replacing metadata data fields
+
+PATCH /taxonomy/{tweet_id}
+Note: Content-Type MUST be set to application/json
+
+for merging new data onto a metadata field, if the field is an array. will error to log if the existing field is not array
+
+DELETE /taxonomy/{tweet_id}
+Note: Content-Type MUST be set to application/json
+
+for deleting fields or removing data from arrays.  if field value is set to false in json doc, it will remove.  if an array is passed, those values will be removed
+from the array field. and will error to log if not already an array.  also you CAN append/remove to/from an array with a passed scalar value.
