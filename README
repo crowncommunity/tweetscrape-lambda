@@ -1,6 +1,6 @@
 Endpoints:
 
-POST /enqueue
+POST ($root)/enqueue
     optional params: tweet=STRING (multiple supported)
 
 * Enqueues valid tweet paths or tweet Ids into the SQS Scrape queue
@@ -30,7 +30,7 @@ object in the following structure:
   "errors": [OBJECTS]
 }
 
-GET /submissions
+GET ($root)/submissions
     optional params: limit=INT
 
 * Temporarily acquires (for 15 minutes) and returns a list of (deduped) SQS objects, up to the $limit (default = 10)
@@ -66,7 +66,7 @@ example:
   }
 ]
 
-DELETE /submissions
+DELETE ($root)/submissions
 
 * Removes SQS messages from the submissions queue
 
@@ -95,10 +95,10 @@ example:
 }
 
 
-GET /submit/:tweet_id
-GET /submit
+GET ($root)/submit/:tweet_id
+GET ($root)/submit
     required params: tweet (allows multiple, max 100 unique)
-POST /submit
+POST ($root)/submit
     required params: tweet (allows multiple, max 100 unique)
 
 * assembles all submitted tweets into an array and extracts valid tweet IDs using the following regex:
@@ -118,7 +118,7 @@ object in the following structure:
   "errors": [OBJECTS]
 }
 
-GET /search
+GET ($root)/search
     required parameter: q=STRING
 
 Parses the query string into an ElasticSearch query object, executes said query, and returns the data
@@ -144,12 +144,12 @@ each modifier increases the rank score of results which use them... 'jason' will
 
 Note:  returned Object now includes a "scroll_id" member... this will be used for a search cursor
 
-GET /search
+GET ($root)/search
     required parameter: scroll_id={valid scroll_id}
 
 returns the next 'page' of search results AND a NEW scroll_id.  You must always pass the LATEST scroll_id for your search when using this endpoint repeatedly
 
-DELETE /search
+DELETE ($root)/search
     required parameter: scroll_id={valid scroll_id}
 
 releases system resources in ElasticSearch being used by the scrolled search.  Current resource timeout is 3 minutes, so searches will timeout naturall at 3min.
@@ -158,34 +158,36 @@ It's just better to release these explicitly
 ***
 These next 4 end points fairly strongly adhere to RESTful standards
 
-These endpoints are actions for managing the metadata object of an ES tweet record.
+These endpoints are actions for managing an ES data record (other than the scraped tweetData itself).
 for each of these endpoints you must pass a flat JSON object: field => value.
 values can be scalar or an array of scalars.. any other data will result in an http error
 example:
 {
     "category": "bad guys",
-    "tags": ["us", "them"]
+    "tags": ["us", "them"],
+    "tweetData": { ... },
+    "timestamp": "123456567"
 }
 
 hitting these endpoints will NOT result in immediate data change.  This is an async process.  these endpoints write to a dynamoDB table,
 which fires a lambda trigger that merges the record into the ES document for the tweet_id
 
-POST /taxonomy/{tweet_id}
+POST ($root)/taxonomy/{tweet_id}
 Note: Content-Type MUST be set to application/json
 
-strictly for creating a new metadata field. will error if metadata already exists in the table
+strictly for creating a new field. will error if tweet has ever been managed by this taxo system. probably won't be used that often
 
-PUT /taxonomy/{tweet_id}
+PUT ($root)/taxonomy/{tweet_id}
 Note: Content-Type MUST be set to application/json
 
-for creating or replacing metadata data fields
+for creating or replacing data fields
 
-PATCH /taxonomy/{tweet_id}
+PATCH ($root)/taxonomy/{tweet_id}
 Note: Content-Type MUST be set to application/json
 
-for merging new data onto a metadata field, if the field is an array. will error to log if the existing field is not array
+for merging new data onto a field, if the field is an array. will error to log if the existing field is not array
 
-DELETE /taxonomy/{tweet_id}
+DELETE ($root)/taxonomy/{tweet_id}
 Note: Content-Type MUST be set to application/json
 
 for deleting fields or removing data from arrays.  if field value is set to false in json doc, it will remove.  if an array is passed, those values will be removed
