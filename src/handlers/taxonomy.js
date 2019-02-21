@@ -140,7 +140,7 @@ const getMostRecent = async tweet_id => {
     .promise()
     .catch(err => console.log)
     .then(res => {
-        return res.Count && normalize(res.Items[0]).normalized
+        return res.Count && res.Items.length && normalize(res.Items[0]).normalized || null
     })
 }
 
@@ -225,7 +225,7 @@ module.exports.post = async ( event, context ) => {
                     TweetId: tweet_id,
                     Action: (action == 'REMOVE' && !body[field]) ? 'DELETE' : action,
                     Field: field,
-                    Parent: ts || most_recent.Timestamp || null,
+                    Parent: ts || (most_recent && most_recent.Timestamp) || null,
                     Content: body[field]
                 }, event)
             }

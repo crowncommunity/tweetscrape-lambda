@@ -26,6 +26,7 @@ custom:
     AdminBucket: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-admin
     TweetModificationTable: ${self:custom.ServiceName}-${self:provider.stage}-${self:provider.region}-modification
     SubmissionQueue: ${self:custom.ServiceName}-${self:provider.stage}-submissions
+    WebArchiveQueue: ${self:custom.ServiceName}-${self:provider.stage}-webarchive
     ScrapeQueue: ${self:custom.ServiceName}-${self:provider.stage}-queue
     ScrapeSearch: ${self:custom.ServiceName}-${self:provider.stage}-search
     ScrapeThrottleTTL: 1800
@@ -76,6 +77,7 @@ provider:
         S3_SAVE_BUCKET: ${self:custom.TweetBucket}
         SUBMIT_QUEUE: ${self:custom.SubmissionQueue}
         SCRAPE_QUEUE: ${self:custom.ScrapeQueue}
+        WEBARCHIVE_QUEUE: ${self:custom.WebArchiveQueue}
         MODIFICATION_TABLE: ${self:custom.TweetModificationTable}
         ELASTIC_HOST: ${self:custom.local.ESEndPoint, self:custom.ESEndPoint}
         ELASTIC_REGION: ${self:custom.local.ESRegion, self:custom.ESRegion}
@@ -101,6 +103,7 @@ provider:
             Resource:
                 - arn:aws:sqs:*:*:${self:custom.ScrapeQueue}
                 - arn:aws:sqs:*:*:${self:custom.SubmissionQueue}
+                - arn:aws:sqs:*:*:${self:custom.WebArchiveQueue}
         -   Effect: Allow
             Action:
                 - "es:ESHttpHead"
@@ -178,6 +181,18 @@ functions:
             #     bucket: ${self:custom.TweetBucket}
             #     rules:
             #         - suffix: .json
+
+    webarchive:
+        handler: src/handlers/webarchive.main
+        reservedConcurrency: 1
+        timeout: 60
+        events:
+            - sqs:
+                arn:
+                    Fn::GetAtt:
+                        - WebArchiveQueue
+                        - Arn
+                batchSize: 1
 
     scrape:
         handler: src/handlers/scrape.main
@@ -382,6 +397,12 @@ resources:
                 QueueName: ${self:custom.SubmissionQueue}
                 VisibilityTimeout: 900
                 MessageRetentionPeriod: 1209600
+        WebArchiveQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: ${self:custom.WebArchiveQueue}
+                VisibilityTimeout: 3600
+                MessageRetentionPeriod: 1209600
 
         TweetImageBucket:
             Type: AWS::S3::Bucket
@@ -449,7 +470,6 @@ resources:
                     Fn::GetAtt:
                         - TweetImageBucket
                         - Arn
-
 
         ElasticSearchInstance:
             Type: AWS::Elasticsearch::Domain
