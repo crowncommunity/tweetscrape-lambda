@@ -83,6 +83,10 @@ provider:
         ACCOUNT_ID: ${self:custom.local.AccountId, self:custom.AccountId}
         SEARCH_LIMIT: ${self:custom.local.ESScrollLimit, self:custom.ESScrollLimit}
         SCROLL_TIMEOUT: ${self:custom.local.ESScrollTimeout, self:custom.ESScrollTimeout}
+        EMAILOCTOPUS_API_KEY: 96c4e5f6-2ee4-11e7-b170-0244cade5e89
+        # EMAILOCTOPUS_LIST_ID: verifiedbullies
+        EMAILOCTOPUS_LIST_ID: 2f75304f-33ea-11e9-a3c9-06b79b628af2
+        EMAILOCTOPUS_API_URL: https://emailoctopus.com/api/1.5/lists
 
     iamRoleStatements:
         -   Effect: Allow
@@ -227,7 +231,6 @@ functions:
                         querystrings:
                             scroll_id: true
 
-
     submit:
         # public, must have lots of sanity checking ... maybe isomorphic-ish to prevent scripting?
         handler: src/handlers/submit.main
@@ -348,6 +351,17 @@ functions:
                     headers:
                         Content-Type: application/json
 
+    email:
+        handler: src/handlers/marketing.email
+        events:
+            - http:
+                method: POST
+                path: ${self:custom.apiPath}/email
+                cors: true
+                request:
+                    headers:
+                        Content-Type: application/json
+
     # tweet:
         # direct to S3, public
     # dedupe
@@ -372,7 +386,6 @@ resources:
         TweetImageBucket:
             Type: AWS::S3::Bucket
             DependsOn:
-                # - TweetImageBucketLambdaPermissions
                 - TweetmodificationLambdaFunction
             Properties:
                 BucketName: ${self:custom.TweetBucket}
@@ -391,7 +404,6 @@ resources:
                                 - DELETE
                                 - HEAD
                             MaxAge: 3000
-                # FUCKING FUCKING LAME... MAKE SURE TO LINK LAMBDA MANUALLY IN CONSOLE
                 NotificationConfiguration:
                     LambdaConfigurations:
                         -   Event: s3:ObjectCreated:*
@@ -423,8 +435,6 @@ resources:
                                             - Ref: 'AWS::AccountId'
                                             - "root"
         TweetImageBucketLambdaPermissions:
-            # DependsOn:
-            #     - Ref: TweetImageBucket
             Type: AWS::Lambda::Permission
             Properties:
                 FunctionName:
