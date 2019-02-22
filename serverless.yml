@@ -1,11 +1,12 @@
 service: tweetscraper
 
 plugins:
-  - serverless-plugin-ifelse
-  - serverless-offline
-  - serverless-s3-remover
-  - aws-amplify-serverless-plugin
-  - serverless-s3-sync
+    - serverless-plugin-ifelse
+    - serverless-offline
+    - serverless-s3-remover
+    - aws-amplify-serverless-plugin
+    - serverless-s3-sync
+    - serverless-scriptable-plugin
 
 custom:
     is_local: ${env:IS_LOCAL, ""}
@@ -58,6 +59,14 @@ custom:
                 provider.environment.ACCOUNT_ID: ${self:custom.AccountId}
                 provider.environment.SEARCH_LIMIT: ${self:custom.ESScrollLimit}
                 provider.environment.SCROLL_TIMEOUT: ${self:custom.ESScrollTimeout}
+    scriptHooks:
+        after:deploy:deploy:
+            - serverless s3sync -r ${self:provider.region} -s ${self:provider.stage}
+        before:s3sync:sync:
+            - node ./app/writeSchemaToEnv.js > app/site/.env
+            - cd app/site/ && npm run build:production
+            - node ./app/writeSchemaToEnv.js > app/admin/.env
+            - cd app/admin/ && npm run build:production
 
 package:
     exclude:
