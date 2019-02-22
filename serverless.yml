@@ -386,6 +386,19 @@ functions:
                     headers:
                         Content-Type: application/json
 
+    tweet:
+        handler:  src/handlers/gettweet.main
+        events:
+            - http:
+                method: GET
+                path: ${self:custom.apiPath}/tweet/{tweet_id}
+                cors: true
+                authorizer:
+                    type: COGNITO_USER_POOLS
+                    authorizerId:
+                        Ref: ApiGatewayAuthorizer
+
+
     # tweet:
         # direct to S3, public
     # dedupe
