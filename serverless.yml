@@ -783,6 +783,9 @@ resources:
                                 Forward: none
                         ## The protocol that users can use to access the files in the origin. To allow HTTP use `allow-all`
                         ViewerProtocolPolicy: redirect-to-https
+                        DefaultTTL: 300
+                        MinTTL: 60
+                        MaxTTL: 3600
                     CacheBehaviors:
                         -   TargetOriginId: ApiGateway
                             PathPattern: api/*
@@ -878,6 +881,9 @@ resources:
                                 Forward: none
                         ## The protocol that users can use to access the files in the origin. To allow HTTP use `allow-all`
                         ViewerProtocolPolicy: redirect-to-https
+                        DefaultTTL: 300
+                        MinTTL: 60
+                        MaxTTL: 3600
                     CacheBehaviors:
                         -   TargetOriginId: ApiGateway
                             PathPattern: api/*

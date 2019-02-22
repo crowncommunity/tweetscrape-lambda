@@ -15,7 +15,15 @@ const {
     SCROLL_TIMEOUT
 } = process.env;
 
-const scroll_timeout = '3m';
+// console.log('env', {
+//     AWS_ACCESS_KEY_ID,
+//     AWS_SECRET_ACCESS_KEY,
+//     INDEX_NAME,
+//     ELASTIC_HOST,
+//     ELASTIC_REGION,
+//     SEARCH_LIMIT,
+//     SCROLL_TIMEOUT
+// })
 
 const clientconfig = {
     hosts: ELASTIC_HOST,
@@ -28,6 +36,7 @@ const clientconfig = {
 		) : new AWS.EnvironmentCredentials( 'AWS' ),
 	} )
 }
+
 const client = ES.Client( clientconfig )
 
 const sTpl = (q, fields, boost = 1) => {
@@ -192,14 +201,14 @@ const doSearch = async (event, context) => {
             sTpl(silo.userNames, ["q.mentions"], 1.25),
             sTpl(silo.userNames, ["t.fullName", "q.fullName"], 0.75),
             // sTpl(silo.userNames, ["t.fullName", "q.fullName", "t.tweetText"], 0.75),
-            // sTpl(silo.userNames, ["q.tweetText"], 0.5),
+            // sTpl(silo.userNames, ["q.quoteText"], 0.5),
         ] : [];
 
         var q_tweetIds = silo.tweetIds && silo.tweetIds.length ? [
             sTpl(silo.tweetIds, ["t.tweetId"], 2.5),
             sTpl(silo.tweetIds, ["q.tweetId", "t.tweetHTML"], 2.25),
             sTpl(silo.tweetIds, ["t.conversationId", "q.conversationId"], 1.5),
-            sTpl(silo.tweetIds, ["q.tweetHTML"], 0.75),
+            sTpl(silo.tweetIds, ["q.quoteHTML"], 0.75),
         ] : [];
 
         // const qd_repl_h = i => {
@@ -208,9 +217,9 @@ const doSearch = async (event, context) => {
         var q_hashTags = silo.hashTags && silo.hashTags.length ? [
             sTpl(silo.hashTags, ["tags"], 3),
             sTpl(silo.hashTags, ["t.tweetText"], 2.5),
-            sTpl(silo.hashTags, ["q.tweetText"], 2),
+            sTpl(silo.hashTags, ["q.quoteText"], 2),
             // sTpl(silo.hashTags.map(i => qd_repl_h(i)), ["t.tweetText"], 2.5),
-            // sTpl(silo.hashTags.map(i => qd_repl_h(i)), ["q.tweetText"], 2),
+            // sTpl(silo.hashTags.map(i => qd_repl_h(i)), ["q.quoteText"], 2),
         ] : [];
 
         var q_mentions = silo.mentions && silo.mentions.length ? [
@@ -227,7 +236,7 @@ const doSearch = async (event, context) => {
         var q_normalized = silo.normalized && silo.normalized.length ? [
             sTpl(silo.normalized, ["t.screenName", "t.fullName"], 1.5),
             sTpl(silo.normalized, ["tags", "t.tweetText", "t.mentions"], 1.25),
-            sTpl(silo.normalized, ["q.screenName", "q.fullName", "q.tweetText", "q.mentions"], 1),
+            sTpl(silo.normalized, ["q.screenName", "q.fullName", "q.quoteText", "q.mentions"], 1),
             sTpl(silo.normalized, ["t.tweetId"], 0.75),
             sTpl(silo.normalized, ["t.conversationId", "q.conversationId"], 0.5),
         ] : [];
@@ -299,7 +308,7 @@ const doScroll = async (event, context) => {
 
     var status
     var response = await client.scroll( {
-        scroll: scroll_timeout,
+        scroll: SCROLL_TIMEOUT || '3m',
         scroll_id: scroll_id
     })
     .catch(err => {
