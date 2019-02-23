@@ -127,6 +127,7 @@ const doSearch = async (event, context) => {
     const fieldname = 'q';
     var queryString;
     var querySort;
+    var all;
 
     if (event.queryStringParameters) console.log('single parameters', event.queryStringParameters)
 	if ( event.queryStringParameters ) {
@@ -136,6 +137,10 @@ const doSearch = async (event, context) => {
         } else {
             queryString = '*'
             querySort = 'timestamp: desc'
+        }
+
+        if (event.queryStringParameters[ 'all' ]) {
+            all = true;
         }
     }
 
@@ -253,10 +258,16 @@ const doSearch = async (event, context) => {
     // console.log(silo2query(shld));
 
     var query = {
+        min_score: 0.01, // this is fucking retarded ES..
         query : {
             bool: {
+                filter: !all ? {
+                    exists: {
+                        field: "tweetData"
+                    }
+                } : null,
                 must: must.length ? silo2query(must) : null,
-                should: shld.length ? silo2query(shld) : null
+                should: shld.length ? silo2query(shld) : null,
             }
         }
     }

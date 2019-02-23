@@ -393,11 +393,6 @@ functions:
                 method: GET
                 path: ${self:custom.apiPath}/tweet/{tweet_id}
                 cors: true
-                authorizer:
-                    type: COGNITO_USER_POOLS
-                    authorizerId:
-                        Ref: ApiGatewayAuthorizer
-
 
     # tweet:
         # direct to S3, public
