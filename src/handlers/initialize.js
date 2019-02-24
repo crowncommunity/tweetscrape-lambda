@@ -83,26 +83,42 @@ module.exports.main = async ( event, context ) => {
 		}
 	}
 
-	await client.indices.exists( {
-			index: INDEX_NAME
-		} )
-		.catch( e => console.log( e ) )
-		.then( r => {
-			return !r ? client.indices.create( {
-					index: INDEX_NAME
-				} )
-				.catch( e => console.log( e ) )
-				.then( res => {
-					return client.indices.putMapping( mapping )
-				} ) : null;
-		} )
-		.then( res => {
-			return client.indices.exists( {
-					index: INDEX_NAME
-				} )
-				.catch( e => console.log( e ) )
-				.then( r => r )
-		} )
-		.then( r => console.log( r ) );
+    console.log('initializing index', INDEX_NAME)
 
+    var exists = await client.indices.exists( {
+        index: INDEX_NAME
+    } )
+    .catch( e => {
+        console.log('index check error', e )
+        context.done();
+        return false;
+    } )
+
+    console.log('exists?', exists)
+    if (exists) {
+        context.done();
+        return true;
+    }
+
+	exists = await client.indices.create( {
+        index: INDEX_NAME
+    } )
+    .catch( e => {
+        console.log('index create failure', e )
+        context.done();
+        return false;
+    } )
+
+    console.log('exists?', exists)
+    if (!exists) {
+        context.done();
+        return false;
+    }
+
+    exists = client.indices.putMapping( mapping )
+
+    console.log('mapping', exists);
+
+    context.done();
+    return exists
 }

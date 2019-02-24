@@ -1,8 +1,5 @@
 const AWS = require( 'aws-sdk' );
 
-const ES = require( 'elasticsearch' );
-const AWS_class = require( 'http-aws-es' );
-
 const DEV_MODE = process.env.IS_LOCAL || process.env.IS_OFFLINE;
 
 const {

@@ -3,6 +3,7 @@ service: tweetscraper
 plugins:
     - serverless-plugin-ifelse
     - serverless-offline
+    - serverless-iam-roles-per-function
     - serverless-s3-remover
     - aws-amplify-serverless-plugin
     - serverless-s3-sync
@@ -99,45 +100,16 @@ provider:
         EMAILOCTOPUS_LIST_ID: 2f75304f-33ea-11e9-a3c9-06b79b628af2
         EMAILOCTOPUS_API_URL: https://emailoctopus.com/api/1.5/lists
 
-    iamRoleStatements:
-        -   Effect: Allow
-            Action:
-                - sqs:DeleteMessage
-                - sqs:DeleteMessageBatch
-                - sqs:ReceiveMessage
-                - sqs:SendMessage
-                - sqs:SendMessageBatch
-                - sqs:GetQueueUrl
-                - sqs:GetQueueAttributes
-            Resource:
-                - arn:aws:sqs:*:*:${self:custom.ScrapeQueue}
-                - arn:aws:sqs:*:*:${self:custom.SubmissionQueue}
-                - arn:aws:sqs:*:*:${self:custom.WebArchiveQueue}
-        -   Effect: Allow
-            Action:
-                - "es:ESHttpHead"
-                - "es:ESHttpPost"
-                - "es:ESHttpGet"
-                - "es:ESHttpDelete"
-                - "es:ESHttpPut"
-                - "es:DescribeElasticsearchDomain"
-                - "es:DescribeElasticsearchDomainConfig"
-            Resource: arn:aws:es:*:*:domain/*
-        -   Effect: Allow
-            Action:
-                - s3:*
-            Resource:
-                - arn:aws:s3:::${self:custom.TweetBucket}/*
-                - arn:aws:s3:::${self:custom.TweetBucket}
-        -   Effect: Allow
-            Action:
-                - dynamodb:*
-            Resource:
-                - arn:aws:dynamodb:*:*:table/${self:custom.TweetModificationTable}
-
 functions:
     initialize:
         handler: src/handlers/initialize.main
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    ## i'm not sure how this actually allows index creation but it seems to
+                    - "es:ESHttpHead"
+                    - "es:ESHttpPut"
+                Resource: arn:aws:es:*:*:domain/${self:custom.ScrapeSearch}
 
     index:
         handler: src/handlers/test.hello
@@ -146,10 +118,10 @@ functions:
                 method: GET
                 path: ${self:custom.apiPath}/hello
                 cors: true
-                authorizer:
-                    type: COGNITO_USER_POOLS
-                    authorizerId:
-                        Ref: ApiGatewayAuthorizer
+                # authorizer:
+                #     type: COGNITO_USER_POOLS
+                #     authorizerId:
+                #         Ref: ApiGatewayAuthorizer
 
     # logevent:
     #     handler: src/handlers/test.logevent
@@ -171,7 +143,6 @@ functions:
     #         #     rules:
     #         #         - suffix: .json
 
-
     tweetmodification:
         handler: src/handlers/tweet.modify
         reservedConcurrency: 3
@@ -190,6 +161,23 @@ functions:
             #     bucket: ${self:custom.TweetBucket}
             #     rules:
             #         - suffix: .json
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - "es:ESHttpPost"
+                Resource: arn:aws:es:*:*:domain/${self:custom.ScrapeSearch}
+            -   Effect: Allow
+                Action:
+                    - sqs:GetQueueUrl
+                    - sqs:SendMessage
+                Resource:
+                    - arn:aws:sqs:*:*:${self:custom.WebArchiveQueue}
+            -   Effect: Allow
+                Action:
+                    - s3:getObject
+                Resource:
+                    - arn:aws:s3:::${self:custom.TweetBucket}/*
+                    - arn:aws:s3:::${self:custom.TweetBucket}
 
     webarchive:
         handler: src/handlers/webarchive.main
@@ -202,11 +190,25 @@ functions:
                         - WebArchiveQueue
                         - Arn
                 batchSize: 1
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - sqs:ReceiveMessage
+                    - sqs:ReceiveMessageBatch
+                    - sqs:DeleteMessage
+                    - sqs:GetQueueAttributes
+                Resource:
+                    - arn:aws:sqs:*:*:${self:custom.WebArchiveQueue}
+            -   Effect: Allow
+                Action:
+                    - dynamodb:*
+                Resource:
+                    - arn:aws:dynamodb:*:*:table/${self:custom.TweetModificationTable}
 
     scrape:
         handler: src/handlers/scrape.main
         reservedConcurrency: 3
-        timeout: 60
+        timeout: 30
         events:
             - sqs:
                 arn:
@@ -214,6 +216,26 @@ functions:
                         - ScrapeQueue
                         - Arn
                 batchSize: 10
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - "es:ESHttpHead"
+                    - "es:ESHttpGet"
+                Resource: arn:aws:es:*:*:domain/${self:custom.ScrapeSearch}
+            -   Effect: Allow
+                Action:
+                    - sqs:ReceiveMessage
+                    - sqs:DeleteMessage
+                    - sqs:GetQueueAttributes
+                Resource:
+                    - arn:aws:sqs:*:*:${self:custom.ScrapeQueue}
+            -   Effect: Allow
+                Action:
+                    - s3:PutObject
+                    - s3:PutObjectAcl
+                Resource:
+                    - arn:aws:s3:::${self:custom.TweetBucket}/*
+                    - arn:aws:s3:::${self:custom.TweetBucket}
 
     enqueue:
         handler: src/handlers/enqueue.main
@@ -230,6 +252,16 @@ functions:
                     parameters:
                         querystrings:
                             tweet: false
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - sqs:SendMessage
+                    - sqs:SendMessageBatch
+                    - sqs:GetQueueUrl
+                    # - sqs:GetQueueAttributes
+                Resource:
+                    - arn:aws:sqs:*:*:${self:custom.ScrapeQueue}
+
     search:
         handler:  src/handlers/search.main
         events:
@@ -242,6 +274,12 @@ functions:
                         querystrings:
                             q: false
                             scroll_id: false
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - "es:ESHttpGet"
+                    - "es:ESHttpPost"
+                Resource: arn:aws:es:*:*:domain/${self:custom.ScrapeSearch}
 
     stop_scroll:
         handler:  src/handlers/search.stop
@@ -254,6 +292,11 @@ functions:
                     parameters:
                         querystrings:
                             scroll_id: true
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - "es:ESHttpDelete"
+                Resource: arn:aws:es:*:*:domain/${self:custom.ScrapeSearch}
 
     submit:
         # public, must have lots of sanity checking ... maybe isomorphic-ish to prevent scripting?
@@ -286,6 +329,16 @@ functions:
                 request:
                     headers:
                         Content-Type: application/json
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - sqs:SendMessage
+                    - sqs:SendMessageBatch
+                    - sqs:GetQueueUrl
+                    # - sqs:GetQueueAttributes
+                Resource:
+                    - arn:aws:sqs:*:*:${self:custom.SubmissionQueue}
+
     submissions:
         handler: src/handlers/submissions.main
         events:
@@ -303,6 +356,18 @@ functions:
                     parameters:
                         querystrings:
                             limit: false
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - sqs:GetQueueUrl
+                    - sqs:ReceiveMessage
+                    - sqs:ReceiveMessageBatch
+                    - sqs:DeleteMessage
+                    - sqs:DeleteMessageBatch
+                    # - sqs:GetQueueAttributes
+                Resource:
+                    - arn:aws:sqs:*:*:${self:custom.SubmissionQueue}
+
     deleteSubmissions:
         handler: src/handlers/deleteSubmissions.main
         events:
@@ -317,6 +382,15 @@ functions:
                 request:
                     headers:
                         Content-Type: application/json
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - sqs:GetQueueUrl
+                    - sqs:DeleteMessage
+                    - sqs:DeleteMessageBatch
+                    # - sqs:GetQueueAttributes
+                Resource:
+                    - arn:aws:sqs:*:*:${self:custom.SubmissionQueue}
 
     taxonomyPost:
         handler: src/handlers/taxonomy.post
@@ -332,6 +406,12 @@ functions:
                 request:
                     headers:
                         Content-Type: application/json
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - dynamodb:*
+                Resource:
+                    - arn:aws:dynamodb:*:*:table/${self:custom.TweetModificationTable}
     taxonomyPut:
         handler: src/handlers/taxonomy.post
         events:
@@ -346,6 +426,12 @@ functions:
                 request:
                     headers:
                         Content-Type: application/json
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - dynamodb:*
+                Resource:
+                    - arn:aws:dynamodb:*:*:table/${self:custom.TweetModificationTable}
     taxonomyPatch:
         handler: src/handlers/taxonomy.post
         events:
@@ -360,6 +446,12 @@ functions:
                 request:
                     headers:
                         Content-Type: application/json
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - dynamodb:*
+                Resource:
+                    - arn:aws:dynamodb:*:*:table/${self:custom.TweetModificationTable}
     taxonomyDelete:
         handler: src/handlers/taxonomy.post
         events:
@@ -374,6 +466,12 @@ functions:
                 request:
                     headers:
                         Content-Type: application/json
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - dynamodb:*
+                Resource:
+                    - arn:aws:dynamodb:*:*:table/${self:custom.TweetModificationTable}
 
     email:
         handler: src/handlers/marketing.email
@@ -393,12 +491,11 @@ functions:
                 method: GET
                 path: ${self:custom.apiPath}/tweet/{tweet_id}
                 cors: true
-
-    # tweet:
-        # direct to S3, public
-    # dedupe
-        # triggered? or scheduled maybe
-        # walks the queue looking for dupes and issues delete/messagevisibility as needed
+        iamRoleStatements:
+            -   Effect: Allow
+                Action:
+                    - "es:ESHttpGet"
+                Resource: arn:aws:es:*:*:domain/${self:custom.ScrapeSearch}
 
 resources:
     Resources:
@@ -521,9 +618,10 @@ resources:
                                         -   - "arn:aws:iam:"
                                             - Ref: 'AWS::AccountId'
                                             - "root"
-                    ### THIS IS TEMPORARY FOR DEV PURPOSES.. MUST REMOVE FOR PUBLIC DEPLOYMENT
                         -   Effect: Allow
-                            Action: "es:*"
+                            Action:
+                                - "es:ESHttpHead"
+                                - "es:ESHttpPut"
                             Resource:
                                 Fn::Join:
                                     - ":"
@@ -532,7 +630,102 @@ resources:
                                         - Ref: 'AWS::AccountId'
                                         - "domain/${self:custom.ScrapeSearch}/*"
                             Principal:
-                                AWS: '*'
+                                AWS:
+                                    Fn::GetAtt:
+                                        - InitializeIamRoleLambdaExecution # this is created by Serverless in the json file
+                                        - Arn
+                        -   Effect: Allow
+                            Action:
+                                - "es:ESHttpGet"
+                            Resource:
+                                Fn::Join:
+                                    - ":"
+                                    -   - "arn:aws:es"
+                                        - Ref: 'AWS::Region'
+                                        - Ref: 'AWS::AccountId'
+                                        - "domain/${self:custom.ScrapeSearch}/*"
+                            Principal:
+                                AWS:
+                                    Fn::GetAtt:
+                                        - TweetIamRoleLambdaExecution # this is created by Serverless in the json file
+                                        - Arn
+                        -   Effect: Allow
+                            Action:
+                                - "es:ESHttpGet"
+                                - "es:ESHttpPost"
+                            Resource:
+                                Fn::Join:
+                                    - ":"
+                                    -   - "arn:aws:es"
+                                        - Ref: 'AWS::Region'
+                                        - Ref: 'AWS::AccountId'
+                                        - "domain/${self:custom.ScrapeSearch}/*"
+                            Principal:
+                                AWS:
+                                    Fn::GetAtt:
+                                        - SearchIamRoleLambdaExecution # this is created by Serverless in the json file
+                                        - Arn
+                        -   Effect: Allow
+                            Action:
+                                - "es:ESHttpDelete"
+                            Resource:
+                                Fn::Join:
+                                    - ":"
+                                    -   - "arn:aws:es"
+                                        - Ref: 'AWS::Region'
+                                        - Ref: 'AWS::AccountId'
+                                        - "domain/${self:custom.ScrapeSearch}/*"
+                            Principal:
+                                AWS:
+                                    Fn::GetAtt:
+                                        - StopUnderscorescrollIamRoleLambdaExecution # this is created by Serverless in the json file
+                                        - Arn
+                        -   Effect: Allow
+                            Action:
+                                - "es:ESHttpGet"
+                                - "es:ESHttpPost"
+                            Resource:
+                                Fn::Join:
+                                    - ":"
+                                    -   - "arn:aws:es"
+                                        - Ref: 'AWS::Region'
+                                        - Ref: 'AWS::AccountId'
+                                        - "domain/${self:custom.ScrapeSearch}/*"
+                            Principal:
+                                AWS:
+                                    Fn::GetAtt:
+                                        - TweetmodificationIamRoleLambdaExecution # this is created by Serverless in the json file
+                                        - Arn
+                        -   Effect: Allow
+                            Action:
+                                - "es:ESHttpGet"
+                                - "es:ESHttpHead"
+                                - "es:ESHttpPost"
+                            Resource:
+                                Fn::Join:
+                                    - ":"
+                                    -   - "arn:aws:es"
+                                        - Ref: 'AWS::Region'
+                                        - Ref: 'AWS::AccountId'
+                                        - "domain/${self:custom.ScrapeSearch}/*"
+                            Principal:
+                                AWS:
+                                    Fn::GetAtt:
+                                        - ScrapeIamRoleLambdaExecution # this is created by Serverless in the json file
+                                        - Arn
+
+                    ### THIS IS TEMPORARY FOR DEV PURPOSES.. MUST REMOVE FOR PUBLIC DEPLOYMENT
+                        # -   Effect: Allow
+                        #     Action: "es:*"
+                        #     Resource:
+                        #         Fn::Join:
+                        #             - ":"
+                        #             -   - "arn:aws:es"
+                        #                 - Ref: 'AWS::Region'
+                        #                 - Ref: 'AWS::AccountId'
+                        #                 - "domain/${self:custom.ScrapeSearch}/*"
+                        #     Principal:
+                        #         AWS: '*'
 
         TweetModificationDynamoTable:
             Type: AWS::DynamoDB::Table
@@ -565,10 +758,6 @@ resources:
                 #     WriteCapacityUnits: 5
                 StreamSpecification:
                     StreamViewType: NEW_IMAGE
-
-        # TweetModificationDynamoTablePolicy:
-        #     Type: AWS::IAM::Policy
-        #     DependsOn:
 
         ApiGatewayAuthorizer:
             Type: AWS::ApiGateway::Authorizer
@@ -616,7 +805,7 @@ resources:
                 # ExplicitAuthFlows:
                 #     - ADMIN_NO_SRP_AUTH
 
-### for cloudfront & s3 integration
+    ### for cloudfront & s3 integration
 
         S3OriginAccessIdentity:
             Type: "AWS::CloudFront::CloudFrontOriginAccessIdentity"
@@ -787,10 +976,7 @@ resources:
                             ResponseCode: 200
                             ResponsePagePath: /index.html
                     DefaultCacheBehavior:
-                        AllowedMethods:
-                            - GET
-                            - HEAD
-                            - OPTIONS
+                        AllowedMethods: [GET, HEAD]
                         ## The origin id defined above
                         TargetOriginId: WebApp
                         ## Defining if and how the QueryString and Cookies are forwarded to the origin which in this case is S3
@@ -805,18 +991,24 @@ resources:
                         MaxTTL: 3600
                     CacheBehaviors:
                         -   TargetOriginId: ApiGateway
-                            PathPattern: api/*
-                            AllowedMethods:
-                                - DELETE
-                                - GET
-                                - HEAD
-                                - OPTIONS
-                                - PATCH
-                                - POST
-                                - PUT
-                            CachedMethods:
-                                - HEAD
-                                - GET
+                            PathPattern: ${self:custom.apiPath}/search
+                            AllowedMethods: [HEAD, DELETE, POST, GET, OPTIONS, PUT, PATCH]
+                            CachedMethods: [GET, HEAD]
+                            ForwardedValues:
+                                QueryString: true
+                                Headers:
+                                    - Accept
+                                    - Referer
+                                    - Authorization
+                                    - Content-Type
+                                Cookies:
+                                    Forward: all
+                            MinTTL: '0'
+                            DefaultTTL: '60'
+                            ViewerProtocolPolicy: https-only
+                        -   TargetOriginId: ApiGateway
+                            PathPattern: ${self:custom.apiPath}/submit
+                            AllowedMethods: [HEAD, DELETE, POST, GET, OPTIONS, PUT, PATCH]
                             ForwardedValues:
                                 QueryString: true
                                 Headers:
@@ -829,14 +1021,51 @@ resources:
                             MinTTL: '0'
                             DefaultTTL: '0'
                             ViewerProtocolPolicy: https-only
-                    # ViewerCertificate:
-                    #     AcmCertificateArn: arn
-                    #     SslSupportMethod: sni-only
-                    # Logging:
-                    #     IncludeCookies: 'false'
-                    #     Bucket: ''
-                    #     Prefix: ''
-                    # WebACLId: waf-id
+                        -   TargetOriginId: ApiGateway
+                            PathPattern: ${self:custom.apiPath}/submit/*
+                            AllowedMethods: [HEAD, GET, OPTIONS]
+                            ForwardedValues:
+                                QueryString: true
+                                Headers:
+                                    - Accept
+                                    - Referer
+                                    - Authorization
+                                    - Content-Type
+                                Cookies:
+                                    Forward: all
+                            MinTTL: '0'
+                            DefaultTTL: '0'
+                            ViewerProtocolPolicy: https-only
+                        -   TargetOriginId: ApiGateway
+                            PathPattern: ${self:custom.apiPath}/email
+                            AllowedMethods: [HEAD, DELETE, POST, GET, OPTIONS, PUT, PATCH]
+                            ForwardedValues:
+                                QueryString: true
+                                Headers:
+                                    - Accept
+                                    - Referer
+                                    - Authorization
+                                    - Content-Type
+                                Cookies:
+                                    Forward: all
+                            MinTTL: '0'
+                            DefaultTTL: '0'
+                            ViewerProtocolPolicy: https-only
+                        -   TargetOriginId: ApiGateway
+                            PathPattern: ${self:custom.apiPath}/tweet/*
+                            AllowedMethods: [HEAD, GET, OPTIONS]
+                            ForwardedValues:
+                                QueryString: true
+                                Headers:
+                                    - Accept
+                                    - Referer
+                                    - Authorization
+                                    - Content-Type
+                                Cookies:
+                                    Forward: all
+                            MinTTL: '0'
+                            DefaultTTL: '60'
+                            ViewerProtocolPolicy: https-only
 
         AdminDistribution:
             Type: AWS::CloudFront::Distribution
@@ -885,10 +1114,7 @@ resources:
                             ResponseCode: 200
                             ResponsePagePath: /index.html
                     DefaultCacheBehavior:
-                        AllowedMethods:
-                            - GET
-                            - HEAD
-                            - OPTIONS
+                        AllowedMethods: [GET, HEAD]
                         ## The origin id defined above
                         TargetOriginId: Admin
                         ## Defining if and how the QueryString and Cookies are forwarded to the origin which in this case is S3
@@ -898,23 +1124,14 @@ resources:
                                 Forward: none
                         ## The protocol that users can use to access the files in the origin. To allow HTTP use `allow-all`
                         ViewerProtocolPolicy: redirect-to-https
-                        DefaultTTL: 300
-                        MinTTL: 60
+                        DefaultTTL: 60
+                        MinTTL: 0
                         MaxTTL: 3600
                     CacheBehaviors:
                         -   TargetOriginId: ApiGateway
-                            PathPattern: api/*
-                            AllowedMethods:
-                                - DELETE
-                                - GET
-                                - HEAD
-                                - OPTIONS
-                                - PATCH
-                                - POST
-                                - PUT
-                            CachedMethods:
-                                - HEAD
-                                - GET
+                            PathPattern: ${self:custom.apiPath}/*
+                            AllowedMethods: [HEAD, DELETE, POST, GET, OPTIONS, PUT, PATCH]
+                            CachedMethods: [HEAD, GET, OPTIONS]
                             ForwardedValues:
                                 QueryString: true
                                 Headers:
@@ -927,11 +1144,3 @@ resources:
                             MinTTL: '0'
                             DefaultTTL: '0'
                             ViewerProtocolPolicy: https-only
-                    # ViewerCertificate:
-                    #     AcmCertificateArn: arn
-                    #     SslSupportMethod: sni-only
-                    # Logging:
-                    #     IncludeCookies: 'false'
-                    #     Bucket: ''
-                    #     Prefix: ''
-                    # WebACLId: waf-id
