@@ -192,3 +192,8 @@ Note: Content-Type MUST be set to application/json
 
 for deleting fields or removing data from arrays.  if field value is set to false in json doc, it will remove.  if an array is passed, those values will be removed
 from the array field. and will error to log if not already an array.  also you CAN append/remove to/from an array with a passed scalar value.
+
+
+GET ($root)/tweet/{tweet_id}
+
+returns the ES document for a tweet

@@ -61,6 +61,14 @@ custom:
                 provider.environment.SEARCH_LIMIT: ${self:custom.ESScrollLimit}
                 provider.environment.SCROLL_TIMEOUT: ${self:custom.ESScrollTimeout}
     scriptHooks:
+        before:package:initialize:
+            -   cd app/chrome/ &&
+                rm -rf dist/ &&
+                git checkout tags/v1.11.2 &&
+                npm pack &&
+                mkdir -p dist/nodejs/node_modules/chrome-aws-lambda &&
+                tar --directory dist/nodejs/node_modules/chrome-aws-lambda/ --extract --file chrome-aws-lambda-*.tgz --strip-components=1 &&
+                rm -f chrome-aws-lambda-*.tgz
         after:deploy:deploy:
             - serverless s3sync -r ${self:provider.region} -s ${self:provider.stage}
         before:s3sync:sync:
@@ -82,7 +90,6 @@ provider:
     runtime: nodejs8.10
     memorySize: 128
     environment:
-        SCRAPE_URL: "http://tweetscraper-env.dbdzfu5nui.us-west-1.elasticbeanstalk.com/tweet/"
         INDEX_NAME: ${self:custom.ScrapeSearch}-index
         S3_SAVE_BUCKET: ${self:custom.TweetBucket}
         SUBMIT_QUEUE: ${self:custom.SubmissionQueue}
@@ -99,6 +106,10 @@ provider:
         # EMAILOCTOPUS_LIST_ID: verifiedbullies
         EMAILOCTOPUS_LIST_ID: 2f75304f-33ea-11e9-a3c9-06b79b628af2
         EMAILOCTOPUS_API_URL: https://emailoctopus.com/api/1.5/lists
+
+layers:
+    chrome:
+        path: app/chrome/dist
 
 functions:
     initialize:
@@ -208,7 +219,10 @@ functions:
     scrape:
         handler: src/handlers/scrape.main
         reservedConcurrency: 3
-        timeout: 30
+        timeout: 180
+        memorySize: 1536
+        layers:
+            - Ref: ChromeLambdaLayer
         events:
             - sqs:
                 arn:

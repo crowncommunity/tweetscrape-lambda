@@ -4,3 +4,6 @@
 [submodule "app/admin"]
 	path = app/admin
 	url = git@github.com:arempe93/verifiedbullies-admin.git
+[submodule "app/chrome"]
+	path = app/chrome
+	url = https://github.com/alixaxel/chrome-aws-lambda.git

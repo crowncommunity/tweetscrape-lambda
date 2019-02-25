@@ -16,6 +16,7 @@
     "is-scalar": "^1.0.2",
     "middy": "^0.22.0",
     "node-fetch": "^2.3.0",
+    "puppeteer-core": "^1.12.2",
     "serverless": "^1.36.3"
   },
   "devDependencies": {
@@ -26,7 +27,7 @@
     "serverless-offline": "^4.2.1",
     "serverless-plugin-ifelse": "^1.0.3",
     "serverless-s3-remover": "^0.6.0",
-    "serverless-s3-sync": "^1.7.2",
+    "serverless-s3-sync": "^1.7.3",
     "serverless-scriptable-plugin": "^1.0.0"
   }
 }

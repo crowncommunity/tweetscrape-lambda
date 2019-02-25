@@ -1,6 +1,9 @@
+const os = require('os')
+const path = require('path')
+
 const AWS = require( 'aws-sdk' );
-const awsSignRequests = require( 'aws-sign-requests' );
-const fetch = require( 'node-fetch' );
+const chromium = require('chrome-aws-lambda');
+const ScrapeTweet = require('../TweetScraper');
 
 const ES = require( 'elasticsearch' );
 const AWS_class = require( 'http-aws-es' );
@@ -10,7 +13,6 @@ const DEV_MODE = process.env.IS_LOCAL || process.env.IS_OFFLINE;
 const {
     AWS_ACCESS_KEY_ID,
     AWS_SECRET_ACCESS_KEY,
-    SCRAPE_URL,
     INDEX_NAME,
     S3_SAVE_BUCKET,
     ELASTIC_HOST,
@@ -38,6 +40,46 @@ const bucket = new AWS.S3( {
 	region: clientconfig.awsConfig.region,
 	credentials: clientconfig.awsConfig.credentials,
 } )
+
+var scrape;
+const doChrome = async (url) => {
+
+    const launch_opts = {
+        dumpio: true,
+        defaultViewport: chromium.defaultViewport,
+        headless: chromium.headless,
+    }
+
+    if (os.platform() == 'freebsd') {
+        launch_opts.executablePath = '/usr/local/bin/chrome'
+    } else {
+        launch_opts.executablePath = await chromium.executablePath
+    }
+
+    scrape = scrape || new ScrapeTweet({ options: {
+        launch: launch_opts,
+        args: chromium.args,
+        // proxy: proxy || null,
+        pages: 99,
+        replies: false,
+        parents: true,
+        quote: true,
+        loadWait: 1250,
+        doScreenshot: true,
+        // debug: true
+    }});
+
+    console.log('url to scrape', url)
+
+    return scrape.getTweet(url).then(data => {
+        delete data.screenshot;
+        scrape.close();
+        return data
+    }).catch(err => {
+        console.log('scrape error', err);
+        scrape.close()
+    });
+}
 
 
 const doScrape = async ( event, context ) => {
@@ -103,22 +145,6 @@ const doScrape = async ( event, context ) => {
 
     console.log('Tweet to scrape:', tweet_path );
 
-	let credentials = clientconfig.awsConfig.credentials;
-
-	// console.log(credentials);
-
-	const options = awsSignRequests( {
-		credentials: {
-			access_key: credentials.accessKeyId,
-			secret_key: credentials.secretAccessKey,
-			session_token: credentials.sessionToken,
-		},
-		url: SCRAPE_URL + tweet_path,
-	} )
-
-	// console.log(options);
-	// console.log(client);
-
 	var search = {
 		index: INDEX_NAME,
 		type: '_doc',
@@ -149,8 +175,7 @@ const doScrape = async ( event, context ) => {
 		}
 	}
 
-	var json = await fetch( options.url, options )
-		.then( res => res.json() )
+    var json = await doChrome('https://twitter.com/' + tweet_path)
 		.then( json => {
             console.log('Tweet Successfully Scraped');
 			json.timestamp = Date.now() / 1000 | 0;
@@ -248,7 +273,7 @@ module.exports.main = async ( event, context ) => {
 
 		const hasFail = result.filter( res => res.result == -1 );
 		if ( hasFail.length > 0 ) {
-			context.fail();
+			context.fail(); // im thinking this might need to go from fail to done
 			return result;
 		}
 
