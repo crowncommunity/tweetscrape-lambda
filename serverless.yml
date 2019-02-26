@@ -59,7 +59,7 @@ custom:
             EBSEnabled: true
             VolumeType: gp2
             VolumeSize: 60
-    ElasticsearchClusterConfig:
+    ESClusterConfig:
         dev:
             InstanceType: t2.small.elasticsearch
             InstanceCount: 1
@@ -69,7 +69,7 @@ custom:
             InstanceType: t2.small.elasticsearch
             InstanceCount: 1
             DedicatedMasterEnabled: false
-            ZoneAwarenessEnabled: false            
+            ZoneAwarenessEnabled: false
         prod:
             InstanceType: m4.large.elasticsearch
             InstanceCount: 2
@@ -122,7 +122,7 @@ provider:
     region: ${opt:region, 'us-west-2'}
     runtime: nodejs8.10
     memorySize: 128
-    profile: ${self:custom.profiles.${self.provider.stage}}
+    profile: ${self:custom.profiles.${self:provider.stage}}
     environment:
         INDEX_NAME: ${self:custom.ScrapeSearch}-index
         S3_SAVE_BUCKET: ${self:custom.TweetBucket}
@@ -639,8 +639,8 @@ resources:
             Type: AWS::Elasticsearch::Domain
             Properties:
                 DomainName: ${self:custom.ScrapeSearch}
-                EBSOptions: ${self:custom.ESEBSOptions.${self.provider.stage}}
-                ElasticsearchClusterConfig: ${self:custom.ESEBSOptions.${self.provider.stage}}
+                EBSOptions: ${self:custom.ESEBSOptions.${self:provider.stage}}
+                ElasticsearchClusterConfig: ${self:custom.ESClusterConfig.${self:provider.stage}}
                 ElasticsearchVersion: 6.4
                 AccessPolicies:
                     Version: "2012-10-17"
