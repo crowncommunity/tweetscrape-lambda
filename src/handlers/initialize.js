@@ -35,6 +35,9 @@ module.exports.main = async ( event, context ) => {
 				"timestamp": {
 					"type": "date"
 				},
+				"category": {
+					"type": "keyword"
+				},
 				"tags": {
 					"type": "keyword"
 				},
@@ -95,19 +98,16 @@ module.exports.main = async ( event, context ) => {
     } )
 
     console.log('exists?', exists)
-    if (exists) {
-        context.done();
-        return true;
+    if (!exists) {
+        exists = await client.indices.create( {
+            index: INDEX_NAME
+        } )
+        .catch( e => {
+            console.log('index create failure', e )
+            context.done();
+            return false;
+        } )
     }
-
-	exists = await client.indices.create( {
-        index: INDEX_NAME
-    } )
-    .catch( e => {
-        console.log('index create failure', e )
-        context.done();
-        return false;
-    } )
 
     console.log('exists?', exists)
     if (!exists) {
@@ -115,10 +115,10 @@ module.exports.main = async ( event, context ) => {
         return false;
     }
 
-    exists = client.indices.putMapping( mapping )
+    exists = await client.indices.putMapping( mapping )
 
     console.log('mapping', exists);
-
     context.done();
+
     return exists
 }

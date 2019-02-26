@@ -42,6 +42,39 @@ custom:
     ESScrollTimeout: 3m
     local: ${file(./local-env.yml)}
     apiPath: api
+    profiles:
+        dev: default
+        test: default
+        prod: verifiedbullies
+    ESEBSOptions:
+        dev:
+            EBSEnabled: true
+            VolumeType: gp2
+            VolumeSize: 10
+        test:
+            EBSEnabled: true
+            VolumeType: gp2
+            VolumeSize: 10
+        prod:
+            EBSEnabled: true
+            VolumeType: gp2
+            VolumeSize: 60
+    ElasticsearchClusterConfig:
+        dev:
+            InstanceType: t2.small.elasticsearch
+            InstanceCount: 1
+            DedicatedMasterEnabled: false
+            ZoneAwarenessEnabled: false
+        test:
+            InstanceType: t2.small.elasticsearch
+            InstanceCount: 1
+            DedicatedMasterEnabled: false
+            ZoneAwarenessEnabled: false            
+        prod:
+            InstanceType: m4.large.elasticsearch
+            InstanceCount: 2
+            DedicatedMasterEnabled: false
+            ZoneAwarenessEnabled: true
     s3Sync:
         -   bucketName: ${self:custom.WebappBucket}
             localDir: app/site/dist
@@ -89,6 +122,7 @@ provider:
     region: ${opt:region, 'us-west-2'}
     runtime: nodejs8.10
     memorySize: 128
+    profile: ${self:custom.profiles.${self.provider.stage}}
     environment:
         INDEX_NAME: ${self:custom.ScrapeSearch}-index
         S3_SAVE_BUCKET: ${self:custom.TweetBucket}
@@ -517,7 +551,7 @@ resources:
             Type: AWS::SQS::Queue
             Properties:
                 QueueName: ${self:custom.ScrapeQueue}
-                VisibilityTimeout: 30
+                VisibilityTimeout: 180
                 MessageRetentionPeriod: 345600
         SubmissionQueue:
             Type: AWS::SQS::Queue
@@ -585,6 +619,8 @@ resources:
                                             - "root"
         TweetImageBucketLambdaPermissions:
             Type: AWS::Lambda::Permission
+            DependsOn:
+                - TweetmodificationLambdaFunction
             Properties:
                 FunctionName:
                     Fn::GetAtt:
@@ -603,15 +639,8 @@ resources:
             Type: AWS::Elasticsearch::Domain
             Properties:
                 DomainName: ${self:custom.ScrapeSearch}
-                EBSOptions:
-                    EBSEnabled: true
-                    VolumeType: gp2
-                    VolumeSize: 10
-                ElasticsearchClusterConfig:
-                    InstanceType: t2.small.elasticsearch
-                    InstanceCount: 1
-                    DedicatedMasterEnabled: false
-                    ZoneAwarenessEnabled: false
+                EBSOptions: ${self:custom.ESEBSOptions.${self.provider.stage}}
+                ElasticsearchClusterConfig: ${self:custom.ESEBSOptions.${self.provider.stage}}
                 ElasticsearchVersion: 6.4
                 AccessPolicies:
                     Version: "2012-10-17"

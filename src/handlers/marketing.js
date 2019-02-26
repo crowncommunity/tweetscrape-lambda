@@ -90,11 +90,14 @@ module.exports.email = async ( event, context ) => {
     }
 
     try {
+        const email_address = body.email_address;
+        delete body.email_address
         var json = await fetch( EMAILOCTOPUS_API_URL + path.join('/', EMAILOCTOPUS_LIST_ID, 'contacts') , {
             method: 'post',
             body: JSON.stringify({
                 api_key: EMAILOCTOPUS_API_KEY,
-                email_address: body.email_address,
+                email_address: email_address,
+                fields: body || {},
             }),
             headers: {
                 'Content-Type': 'application/json'

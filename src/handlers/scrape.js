@@ -41,11 +41,10 @@ const bucket = new AWS.S3( {
 	credentials: clientconfig.awsConfig.credentials,
 } )
 
-var scrape;
 const doChrome = async (url) => {
 
     const launch_opts = {
-        dumpio: true,
+        dumpio: DEV_MODE || false,
         defaultViewport: chromium.defaultViewport,
         headless: chromium.headless,
     }
@@ -56,11 +55,12 @@ const doChrome = async (url) => {
         launch_opts.executablePath = await chromium.executablePath
     }
 
-    scrape = scrape || new ScrapeTweet({ options: {
+    const scrape = new ScrapeTweet({ options: {
         launch: launch_opts,
         args: chromium.args,
         // proxy: proxy || null,
-        pages: 99,
+        pages: 1,
+        // timeline: false,
         replies: false,
         parents: true,
         quote: true,
@@ -71,13 +71,13 @@ const doChrome = async (url) => {
 
     console.log('url to scrape', url)
 
-    return scrape.getTweet(url).then(data => {
+    return scrape.getTweet(url).then(async data => {
         delete data.screenshot;
-        scrape.close();
+        await scrape.close();
         return data
-    }).catch(err => {
+    }).catch(async err => {
         console.log('scrape error', err);
-        scrape.close()
+        await scrape.close()
     });
 }
 
@@ -138,7 +138,7 @@ const doScrape = async ( event, context ) => {
 		// context.fail();
 		return {
 			result: -1,
-			message: e.message,
+			message: err.message,
 			event
 		}
 	}
