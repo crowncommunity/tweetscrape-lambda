@@ -106,7 +106,7 @@ module.exports.email = async ( event, context ) => {
 	    .then( res => res.json() )
 
         return {
-            statusCode: json.code || 500,
+            statusCode: json.code || 200,
             headers: {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Credentials': true,
